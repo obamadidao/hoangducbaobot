@@ -1,0 +1,14 @@
+{
+    "1207080443371855882": {
+        "text": "Kênh này để bốc tarot ( cách dùng sử dụng \"/\" chọn wheet sử dụng câu lệnh của wheet, hoặc \"/tarot\" trực tiếp là ra )",
+        "lastMessageId": "1516427563717754942"
+    },
+    "1510684535203958865": {
+        "text": "📌 /addacc thêm acc vào kho\n\n📥 /panel mượn acc\n\n📤 /traacc trả acc khi dùng xong\n\nℹ️ /listacc thông tin của các acc\n\n♻️ /editacc sửa nội dung acc\n\n❌ /delacc xóa acc\n\nLưu ý khi dùng xong acc phải ấn trả acc, sau 5 tiếng từ lúc mượn hệ thống sẽ tự động trả acc",
+        "lastMessageId": "1516429647041265787"
+    },
+    "1371698189471842314": {
+        "text": "Copy dòng bên dưới và nhập vào kênh để đổi bot voice thành tiếng Việt 👇\n/settings tts setting:voice value:Hue (Vietnamese)",
+        "lastMessageId": "1516429770173452401"
+    }
+}

@@ -1,170 +1,769 @@
 require("dotenv").config();
-const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
+const { 
+    Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
+    ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
+    REST, Routes, SlashCommandBuilder, PermissionFlagsBits,
+    StringSelectMenuBuilder
+} = require("discord.js");
 const cron = require("node-cron");
 const fs = require("fs");
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.MessageContent 
+    ]
 });
 
-const FILE = "./birthdays.json";
+// TỰ ĐỘNG PHÁT HIỆN RAILWAY VOLUME KHÔNG LO MẤT DATA KHI DEPLOY
+const FILE = fs.existsSync("/data") ? "/data/birthdays.json" : "./birthdays.json";
+const STICKY_FILE = fs.existsSync("/data") ? "/data/sticky.json" : "./sticky.json";
 
-// ======================
-// HÀM LƯU / ĐỌC DỮ LIỆU
-// ======================
-function loadData() {
-    if (!fs.existsSync(FILE)) return {};
-    return JSON.parse(fs.readFileSync(FILE, "utf-8"));
-}
+const tempImages = new Map();
+const processingChannels = new Set(); // Chặn tình trạng spam loop khi nhiều người nhắn cùng lúc
 
-function saveData(data) {
-    fs.writeFileSync(FILE, JSON.stringify(data, null, 4));
-}
-
-// ======================
-// HÀM ĐẾM NGƯỢC NGÀY SINH
-// ======================
-function getCountdown(day, month) {
-    const now = new Date();
-    const year = now.getFullYear();
-    let next = new Date(year, month - 1, day);
-
-    if (next < now) {
-        next = new Date(year + 1, month - 1, day);
+// ==========================================
+// HÀM TIỆN ÍCH DÙNG CHUNG (DATABASE & TRỢ GIÚP)
+// ==========================================
+function readJson(path) {
+    if (!fs.existsSync(path)) return {};
+    try {
+        const content = fs.readFileSync(path, "utf-8").trim();
+        return content ? JSON.parse(content) : {};
+    } catch (err) {
+        console.error(`⚠️ Lỗi định dạng file ${path}, đang tự động reset.`);
+        return {};
     }
-
-    const diff = next - now;
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-// ======================
-// BOT SẴN SÀNG (Đã sửa thành clientReady)
-// ======================
-client.once("clientReady", () => {
+function writeJson(path, data) {
+    fs.writeFileSync(path, JSON.stringify(data, null, 4));
+}
+
+// Bọc gọn gàng các hàm cũ để tránh thay đổi tên gọi khắp hệ thống
+const loadData = () => readJson(FILE);
+const saveData = (data) => writeJson(FILE, data);
+const loadStickyData = () => readJson(STICKY_FILE);
+const saveStickyData = (data) => writeJson(STICKY_FILE, data);
+
+// Kiểm tra xem thành viên có Role được phép cấu hình trong .env hay không
+function isSelfAllowed(member) {
+    const roleEnv = process.env.ROLE_IDS || "";
+    const allowedRoles = roleEnv.split(',').map(r => r.trim()).filter(r => r !== "");
+    if (allowedRoles.length === 0) return true; // Nếu không cài đặt ROLE_IDS thì mở cho tất cả
+    return allowedRoles.some(roleId => member.roles.cache.has(roleId));
+}
+
+function getDaysUntilBirthday(day, month) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    let bdayTest = new Date(currentYear, month - 1, day);
+    
+    if (bdayTest < now && bdayTest.toDateString() !== now.toDateString()) {
+        bdayTest.setFullYear(currentYear + 1);
+    }
+    
+    const diffTime = bdayTest - now;
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+}
+
+// ==========================================
+// SỰ KIỆN BOT READY & ĐĂNG KÝ SLASH COMMANDS
+// ==========================================
+client.once("ready", async () => {
     console.log(`✅ Bot online: ${client.user.tag}`);
 
-    // Lên lịch chúc sinh nhật tự động vào 00:00 mỗi ngày
+    const commands = [
+        new SlashCommandBuilder()
+            .setName('birthdays')
+            .setDescription('Xem danh sách sinh nhật của tất cả thành viên (Chỉ dùng ở kênh Setup)'),
+        new SlashCommandBuilder()
+            .setName('taoprofile')
+            .setDescription('Tạo hồ sơ cá nhân và điền ngày sinh nhật')
+            .addAttachmentOption(option => option.setName('anh1').setDescription('Ảnh profile 1').setRequired(true))
+            .addAttachmentOption(option => option.setName('anh2').setDescription('Ảnh profile 2').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh3').setDescription('Ảnh profile 3').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh4').setDescription('Ảnh profile 4').setRequired(false)),
+        new SlashCommandBuilder()
+            .setName('suaprofile')
+            .setDescription('Sửa hồ sơ cá nhân và ngày sinh dạng chữ (Siêu gọn gàng)'),
+        new SlashCommandBuilder()
+            .setName('suaanh')
+            .setDescription('Thay thế hoặc thêm ảnh mới trực quan cho hồ sơ'),
+        new SlashCommandBuilder()
+            .setName('xoaprofile')
+            .setDescription('Xóa hồ sơ cá nhân và ngày sinh khỏi danh sách'),
+        new SlashCommandBuilder()
+            .setName('sticky')
+            .setDescription('Tạo cấu hình tin nhắn dính ở cuối kênh chat thông qua bảng Modal')
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages), 
+        new SlashCommandBuilder()
+            .setName('unsticky')
+            .setDescription('Gỡ bỏ tin nhắn dính tại kênh này')
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    ].map(command => command.toJSON());
+
+    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+    try {
+        console.log('🔄 Đang làm mới và đồng bộ lại các lệnh cấp Server (Guild)...');
+        const guilds = await client.guilds.fetch();
+        for (const [guildId] of guilds) {
+            await rest.put(
+                Routes.applicationGuildCommands(client.user.id, guildId),
+                { body: commands },
+            );
+        }
+        console.log('✅ Đã đồng bộ xong! Menu lệnh đã được làm sạch.');
+    } catch (error) {
+        console.error('❌ Lỗi khi đăng ký lệnh:', error);
+    }
+
+    // ==========================================
+    // CẤU HÌNH LỜI CHÚC & CRON JOB SINH NHẬT
+    // ==========================================
+    const loiChucMacDinh = [
+        "Ôi dời ơi **{name}**! ăn cứt đi nhá :zzzzz_tom_blushh: hehe",
+        "Tới công chuyện luôn :tom_creepylaugh: ! Sinh nhật của **{name}**. Liên hệ ngay cho anh zai @fowf.ongggg278 gửi qr để nhận ngay 2 lít trong sinh nhật của mình nhé",
+        "Happy Birthday! Chúc **{name}** có một ngày sinh nhật thật ấm áp bên gia đình, bạn bè và luôn giữ vững ngọn lửa đam mê với những sở thích của mình! 🩷✨",
+        "**{name}** lắm tiền vậy sinh nhật không thấy bank mấy ae ít xèng nhể :CBuwu:. Thôi thì nửa bill bữa nướng Oishi cũng được",
+        "Thế mà lại hay anh em ạ, vì **{name}** tuổi mới chắc chắn sẽ có người yêu mới :_emoji_: 🎉",
+        ":pepedance46: :pepedance46:Chúc mừng sinh nhật **{name}**! Tuổi mới ăn khỏe, ngủ ngon, học tập và làm việc thật năng suất, sớm thành công rực rỡ nha bạn tôi! 🌟🍰",
+        " :raging_pepe: Chúc mừng sinh nhật. Tuổi mới chúc **{name}** roll 5 tiền toàn 3 sao, bắn toàn vào đầu và mở thẻ toàn max nhé :raging_pepe:",
+        "Đcm sướng nhá :tt_clapCat_OwO:, được cả Hoàng Đức B*o chúc sinh nhật **{name}**. Tuổi mới gắng để mà được như anh nhé",
+        "Chào cậu bé sinh nhật, hôm nay bạn là vua đấy muốn gì cũng được, cho làm hoàng đế luôn **{name}**! 👑"
+    ];
+
+    const loiChucDocQuyenMyNu = [
+        "**{name}** Mong là cuộc sống sẽ ngày càng dịu dàng và xinh đẹp hơn như chính cậu vậy đó :742539mymelodyemojidiscord: thứ này là dành cho cậu nè 🌹",
+        "Happy Birthday :460860mymelodyemojidiscord: công chúa **{name}**! Chúc cậu tuổi mới luôn rạng rỡ, xinh đẹp và có nhiều người yêu nhá :784982mymelodyemojidiscord: 🎀",
+        "Này cô bé **{name}** nhắn ngay cho anh @fowf.ongggg278 để nhận túi mù nhaaaaa. Yeeuuuuu <3 🩷🩷🩷"
+    ];
+
     cron.schedule("0 0 * * *", async () => {
         const data = loadData();
         const now = new Date();
         const day = now.getDate();
         const month = now.getMonth() + 1;
 
-        for (const userId in data) {
-            const userData = data[userId];
+        const guilds = await client.guilds.fetch();
+        for (const [guildId] of guilds) {
+            const guild = await client.guilds.fetch(guildId).catch(() => null);
+            if (!guild) continue;
 
-            if (userData.day === day && userData.month === month) {
-                try {
-                    const birthdayChannel = await client.channels.fetch(process.env.BIRTHDAY_CHANNEL_ID);
-                    if (birthdayChannel) {
-                        const bdayEmbed = new EmbedBuilder()
-                            .setColor("#FFB6C1") // Đã sửa màu Pink thành Hex
-                            .setTitle(`🎉 CHÚC MỪNG SINH NHẬT 🎉`)
-                            .setDescription(`Hôm nay là sinh nhật của <@${userId}>! Chúc bạn tuổi mới thật nhiều niềm vui và hạnh phúc! 🎂🎁🎈`)
-                            .setImage(userData.image)
-                            .setTimestamp();
+            for (const userId in data) {
+                const userData = data[userId];
+                if (userData.day === day && userData.month === month) {
+                    const tagContent = `Nay là sinh nhật của **${userData.name}** (<@${userId}>) đấy anh em ạ <@&1207064301957947443>, <@&1258567277695995904> ơi✨🎉`;
+                    let danhSachQuay = [...loiChucMacDinh];
+                    
+                    try {
+                        const member = await guild.members.fetch(userId).catch(() => null);
+                        if (member && member.roles.cache.has("1206357280937873489")) {
+                            danhSachQuay = danhSachQuay.concat(loiChucDocQuyenMyNu);
+                        }
+                    } catch (err) { console.error(err); }
 
-                        birthdayChannel.send({ content: `<@${userId}>`, embeds: [bdayEmbed] });
-                    }
-                } catch (err) {
-                    console.error("Lỗi gửi tin sinh nhật:", err);
+                    const cauChucNgauNhien = danhSachQuay[Math.floor(Math.random() * danhSachQuay.length)];
+                    const loiChucHoanChinh = cauChucNgauNhien.replace(/{name}/g, userData.name);
+
+                    try {
+                        const birthdayChannel = await guild.channels.fetch("1313150267881033739").catch(() => null);
+                        if (birthdayChannel) {
+                            const displayImg = userData.images ? userData.images[0] : userData.image;
+                            const bdayEmbed = new EmbedBuilder()
+                                .setColor("#FFB6C1") 
+                                .setTitle(`🎉 CHÚC MỪNG SINH NHẬT 🎉`)
+                                .setDescription(loiChucHoanChinh)
+                                .setImage(displayImg || null)
+                                .setTimestamp();
+                            await birthdayChannel.send({ content: tagContent, embeds: [bdayEmbed] });
+                        }
+                    } catch (err) { console.error(err); }
+
+                    try {
+                        const generalChatChannel = await guild.channels.fetch("1206335749864296560").catch(() => null);
+                        if (generalChatChannel) {
+                            await generalChatChannel.send({ content: `📢 Hôm nay là sinh nhật của <@${userId}> nè mọi người ơi! Ghé qua kênh <#1313150267881033739> để gửi những lời chúc tốt đẹp nhất nhé! :tom_jerry_2:` });
+                        }
+                    } catch (err) { console.error(err); }
                 }
             }
         }
     });
 });
 
-// ======================
-// XỬ LÝ LỆNH TỪ NGƯỜI DÙNG
-// ======================
-client.on("interactionCreate", async interaction => {
-    if (!interaction.isChatInputCommand()) return;
-    const data = loadData();
+// ==========================================
+// SỰ KIỆN LẮNG NGHE TIN NHẮN (GHIM TIN NHẮN)
+// ==========================================
+client.on("messageCreate", async (message) => {
+    if (message.author.bot || !message.guild) return;
 
-    // 1. LỆNH TẠO PROFILE
-    if (interaction.commandName === "taoprofile") {
-        
-        // Báo cho Discord biết: "Đợi tôi xử lý một xíu nhé" (Chống lỗi không phản hồi)
-        await interaction.deferReply({ ephemeral: true });
+    const stickyData = loadStickyData();
+    if (!stickyData[message.channel.id]) return;
 
-        // Kiểm tra Kênh
-        if (interaction.channelId !== process.env.SETUP_CHANNEL_ID) {
-            return interaction.editReply({ content: `❌ Lệnh này chỉ dùng được ở kênh <#${process.env.SETUP_CHANNEL_ID}>!` });
-        }
+    if (processingChannels.has(message.channel.id)) return;
+    processingChannels.add(message.channel.id);
 
-        // Kiểm tra Role (Đã vá lỗi sập bot khi quên ID)
-        const roleEnv = process.env.ROLE_IDS || ""; 
-        const allowedRoles = roleEnv.split(',');
-        const hasPermission = allowedRoles.some(roleId => interaction.member.roles.cache.has(roleId.trim()));
-        
-        if (!hasPermission) {
-            return interaction.editReply({ content: "❌ Bạn không có quyền sử dụng lệnh này!" });
-        }
+    const channelSticky = stickyData[message.channel.id];
 
-        // Lấy dữ liệu người dùng nhập
-        const name = interaction.options.getString("ten");
-        const day = interaction.options.getInteger("ngay");
-        const month = interaction.options.getInteger("thang");
-        const year = interaction.options.getInteger("nam");
-        const location = interaction.options.getString("noio");
-        const hobbies = interaction.options.getString("sothich");
-        const image = interaction.options.getAttachment("anh");
+    const stickyEmbed = new EmbedBuilder()
+        .setColor("#F1C40F")
+        .setTitle("📌 Tin nhắn ghim:") // Tiêu đề Unicode chuẩn cực đẹp, không bị vỡ lỗi custom emoji
+        .setDescription(channelSticky.text)
+        .setTimestamp();
 
-        // Lưu vào file JSON
-        data[interaction.user.id] = { name, day, month, year, location, hobbies, image: image.url };
-        saveData(data);
-
-        // Tạo khung Profile đẹp mắt
-        const profileEmbed = new EmbedBuilder()
-            .setColor("#2F3136")
-            .setAuthor({ name: `☁️ ${name} ☁️`, iconURL: interaction.user.displayAvatarURL() })
-            .setDescription(`🍧 *Nơi ở:* ${location}\n🎮 *Sở thích/Game:* ${hobbies}\n🎂 *Ngày sinh:* ${day}/${month}/${year}`)
-            .setImage(image.url) 
-            .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true })) 
-            .setFooter({ text: "Hồ sơ thành viên" })
-            .setTimestamp();
-
-        // Gửi sang KÊNH PROFILE
+    if (channelSticky.lastMessageId) {
         try {
-            const profileChannel = await interaction.guild.channels.fetch(process.env.PROFILE_CHANNEL_ID);
-            await profileChannel.send({ embeds: [profileEmbed] });
-            
-            // Báo thành công (Dùng editReply vì đã deferReply ở trên)
-            await interaction.editReply({ content: `✅ Đã tạo Profile và lưu ngày sinh thành công! Qua kênh <#${process.env.PROFILE_CHANNEL_ID}> để xem nhé.` });
+            const oldMsg = await message.channel.messages.fetch(channelSticky.lastMessageId).catch(() => null);
+            if (oldMsg) await oldMsg.delete().catch(() => null);
         } catch (err) {
-            console.error(err);
-            await interaction.editReply({ content: "❌ Lỗi: Bot không tìm thấy Kênh Profile, hãy kiểm tra lại ID trong file .env" });
+            console.log("Tin cũ đã bị xóa trước đó.");
         }
     }
 
-    // 2. LỆNH XEM DANH SÁCH SINH NHẬT
-    if (interaction.commandName === "birthdays") {
-        await interaction.deferReply(); 
+    try {
+        const newMsg = await message.channel.send({ embeds: [stickyEmbed] });
+        stickyData[message.channel.id].lastMessageId = newMsg.id;
+        saveStickyData(stickyData);
+    } catch (err) {
+        console.error("Lỗi gửi tin Sticky:", err);
+    }
 
-        if (Object.keys(data).length === 0) {
-            return interaction.editReply("❌ Chưa có thành viên nào tạo Profile.");
+    processingChannels.delete(message.channel.id);
+});
+
+// ==========================================
+// CÁC HÀM TRỢ GIÚP GIAO DIỆN (UI HELPERS)
+// ==========================================
+
+// Gửi hoặc cập nhật thẻ Profile lên Sảnh Danh Vọng (Hàm dùng chung)
+async function sendProfileCardToHall(guild, targetId, userData, footerText = "Sảnh danh vọng 🏆") {
+    const userObj = await client.users.fetch(targetId).catch(() => null);
+    
+    let descriptionText = `> 💬 *"${userData.slogan}"*\n\n📌 **Nơi ở:** ${userData.location}\n🩷 **Sở thích:** ${userData.hobbies}`;
+    if (userData.day && userData.month) {
+        descriptionText += `\n🎂 **Ngày sinh:** ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}`;
+    }
+
+    const imageUrls = userData.images || [];
+
+    const profileEmbed = new EmbedBuilder()
+        .setColor("#2F3136")
+        .setTitle(`☁️ ${userData.name} ☁️`)
+        .setAuthor({ name: userObj ? userObj.tag : userData.name, iconURL: userObj ? userObj.displayAvatarURL() : null })
+        .setDescription(descriptionText)
+        .setImage(imageUrls[0] || null)
+        .setThumbnail(userObj ? userObj.displayAvatarURL({ dynamic: true }) : null)
+        .setFooter({ text: footerText })
+        .setTimestamp();
+
+    const components = [];
+    if (imageUrls.length > 1) {
+        const total = imageUrls.length;
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`slide_${targetId}_${total - 1}_prev`).setLabel('<<').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('dummy').setLabel(`1/${total}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+            new ButtonBuilder().setCustomId(`slide_${targetId}_1_next`).setLabel('>>').setStyle(ButtonStyle.Secondary)
+        );
+        components.push(row);
+    }
+
+    try {
+        const profileChannel = await guild.channels.fetch(process.env.PROFILE_CHANNEL_ID);
+        if (profileChannel) {
+            await profileChannel.send({ embeds: [profileEmbed], components });
+        }
+    } catch (err) {
+        console.error("❌ Lỗi gửi thẻ profile lên sảnh danh vọng:", err);
+    }
+}
+
+// Bật Modal sửa chữ (Điền sẵn toàn bộ data cũ)
+async function openEditProfileModal(interaction, targetId) {
+    const data = loadData();
+    const existing = data[targetId];
+
+    if (!existing) {
+        return interaction.reply({ content: `❌ Thành viên <@${targetId}> chưa tạo hồ sơ cá nhân nên không thể sửa!`, flags: ['Ephemeral'] });
+    }
+
+    const modal = new ModalBuilder()
+        .setCustomId(`edit_profile_modal_${targetId}`)
+        .setTitle(`Sửa Hồ Sơ: ${existing.name || "Thành viên"}`);
+
+    const nameInput = new TextInputBuilder()
+        .setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setValue(existing.name || "").setRequired(true);
+
+    const sloganInput = new TextInputBuilder()
+        .setCustomId("modal_slogan").setLabel("Câu nói tâm đắc / Slogan cá nhân").setStyle(TextInputStyle.Short).setValue(existing.slogan || "").setRequired(true);
+
+    const locationInput = new TextInputBuilder()
+        .setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setValue(existing.location || "").setRequired(true);
+
+    const hobbiesInput = new TextInputBuilder()
+        .setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setValue(existing.hobbies || "").setRequired(true);
+
+    const bdayInput = new TextInputBuilder()
+        .setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06 hoặc 15/06/2004)").setStyle(TextInputStyle.Short)
+        .setValue(existing.day && existing.month ? `${existing.day}/${existing.month}${existing.year ? `/${existing.year}` : ""}` : "").setRequired(false);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(nameInput),
+        new ActionRowBuilder().addComponents(sloganInput),
+        new ActionRowBuilder().addComponents(locationInput),
+        new ActionRowBuilder().addComponents(hobbiesInput),
+        new ActionRowBuilder().addComponents(bdayInput)
+    );
+
+    await interaction.showModal(modal);
+}
+
+// Lọc và hiển thị danh sách Menu thả xuống chứa các User ĐÃ ĐĂNG KÝ hồ sơ
+async function createRegisteredUsersSelectMenu(customId, placeholder) {
+    const data = loadData();
+    const userIds = Object.keys(data);
+
+    if (userIds.length === 0) return null;
+
+    const options = [];
+    for (const id of userIds) {
+        const userData = data[id];
+        const userObj = client.users.cache.get(id) || await client.users.fetch(id).catch(() => null);
+        const discordTag = userObj ? ` (@${userObj.username})` : "";
+        
+        options.push({
+            label: `${userData.name}${discordTag}`.slice(0, 100),
+            value: id,
+            description: `Slogan: ${userData.slogan || "Chưa có"}`.slice(0, 100)
+        });
+    }
+
+    return new StringSelectMenuBuilder()
+        .setCustomId(customId)
+        .setPlaceholder(placeholder)
+        .addOptions(options.slice(0, 25));
+}
+
+// Trình quản lý ảnh trực quan (Hiển thị chi tiết ảnh cũ để chọn sửa)
+async function openPhotoEditorDashboard(interaction, targetId) {
+    const data = loadData();
+    const existing = data[targetId];
+
+    if (!existing) {
+        return interaction.reply({ content: `❌ Thành viên <@${targetId}> chưa tạo hồ sơ cá nhân nên không thể sửa ảnh!`, flags: ['Ephemeral'] });
+    }
+
+    const imageUrls = existing.images || (existing.image ? [existing.image] : []) || [];
+    
+    const dashboardEmbed = new EmbedBuilder()
+        .setColor("#F1C40F")
+        .setTitle(`📸 Trình chỉnh ảnh: ${existing.name}`)
+        .setDescription("Dưới đây là các ảnh hiện có trong hồ sơ của bạn. Hãy bấm vào nút bên dưới để cập nhật riêng từng ảnh:")
+        .setTimestamp();
+
+    if (imageUrls.length > 0) {
+        dashboardEmbed.setThumbnail(imageUrls[0]);
+        let imgListText = "";
+        imageUrls.forEach((url, i) => {
+            imgListText += `🖼️ **Ảnh thứ ${i + 1}:** [Xem ảnh cũ](${url})\n`;
+        });
+        dashboardEmbed.addFields({ name: "Bộ sưu tập ảnh hiện tại:", value: imgListText });
+    } else {
+        dashboardEmbed.addFields({ name: "Bộ sưu tập ảnh hiện tại:", value: "Chưa có ảnh nào." });
+    }
+
+    const rows = [];
+    const buttonRow = new ActionRowBuilder();
+
+    for (let i = 0; i < imageUrls.length; i++) {
+        buttonRow.addComponents(
+            new ButtonBuilder().setCustomId(`changephoto_${targetId}_${i}`).setLabel(`Sửa ảnh ${i + 1}`).setStyle(ButtonStyle.Primary)
+        );
+    }
+
+    if (imageUrls.length < 4) {
+        buttonRow.addComponents(
+            new ButtonBuilder().setCustomId(`changephoto_${targetId}_${imageUrls.length}`).setLabel(`Thêm ảnh phụ (${imageUrls.length + 1})`).setStyle(ButtonStyle.Success)
+        );
+    }
+
+    rows.push(buttonRow);
+
+    if (interaction.isStringSelectMenu()) {
+        await interaction.update({ embeds: [dashboardEmbed], components: rows, content: null });
+    } else {
+        await interaction.reply({ embeds: [dashboardEmbed], components: rows, flags: ['Ephemeral'] });
+    }
+}
+
+// ==========================================
+// KHỐI SỰ KIỆN TƯƠNG TÁC CHÍNH (CONSOLIDATED)
+// ==========================================
+client.on("interactionCreate", async interaction => {
+    
+    // ------------------------------------------
+    // 1. XỬ LÝ SLASH COMMANDS (LỆNH GHÉP)
+    // ------------------------------------------
+    if (interaction.isChatInputCommand()) {
+        const { commandName, channelId, guild, member, user } = interaction;
+
+        // Chặn kênh setup ngoại trừ các lệnh sticky
+        if (["birthdays", "taoprofile", "suaprofile", "suaanh", "xoaprofile"].includes(commandName) && channelId !== process.env.SETUP_CHANNEL_ID) {
+            return interaction.reply({ content: `❌ Lệnh này chỉ dùng được ở kênh <#${process.env.SETUP_CHANNEL_ID}>!`, flags: ['Ephemeral'] });
         }
 
-        let desc = "";
-        let i = 1;
+        const isAdmin = member.permissions.has(PermissionFlagsBits.ManageMessages);
 
-        for (const userId in data) {
-            const { day, month, year } = data[userId];
-            const left = getCountdown(day, month);
-
-            desc += `**#${i}** 👤 <@${userId}>\n`;
-            desc += `🎂 ${day}/${month}/${year}\n`;
-            desc += `⏳ Còn **${left} ngày**\n\n`;
-            i++;
+        // --- LỆNH /SUAPROFILE ---
+        if (commandName === "suaprofile") {
+            if (isAdmin) {
+                const selectMenu = await createRegisteredUsersSelectMenu("select_edit_profile", "Chọn thành viên cần sửa hồ sơ...");
+                if (!selectMenu) return interaction.reply({ content: "❌ Chưa có thành viên nào đăng ký hồ sơ cả!", flags: ['Ephemeral'] });
+                
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+                return await interaction.reply({ content: "⚙️ **Chọn thành viên bạn muốn chỉnh sửa hồ sơ:**", components: [row], flags: ['Ephemeral'] });
+            } else {
+                if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền chỉnh sửa hồ sơ!", flags: ['Ephemeral'] });
+                const data = loadData();
+                if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ! Hãy tạo bằng lệnh `/taoprofile`.", flags: ['Ephemeral'] });
+                return await openEditProfileModal(interaction, user.id);
+            }
         }
 
-        const embed = new EmbedBuilder()
-            .setTitle("🎂 DANH SÁCH SINH NHẬT")
-            .setColor("#FFB6C1") // Đã sửa màu Pink thành Hex
-            .setDescription(desc)
-            .setFooter({ text: "Hệ thống tự động" });
+        // --- LỆNH /SUAANH ---
+        if (commandName === "suaanh") {
+            if (isAdmin) {
+                const selectMenu = await createRegisteredUsersSelectMenu("select_edit_photos", "Chọn thành viên để chỉnh sửa ảnh...");
+                if (!selectMenu) return interaction.reply({ content: "❌ Chưa có ai khởi tạo hồ sơ để chỉnh sửa ảnh!", flags: ['Ephemeral'] });
 
-        return interaction.editReply({ embeds: [embed] });
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+                return await interaction.reply({ content: "📸 **Chọn thành viên bạn muốn thay đổi ảnh hồ sơ:**", components: [row], flags: ['Ephemeral'] });
+            } else {
+                if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sửa ảnh hồ sơ cá nhân!", flags: ['Ephemeral'] });
+                const data = loadData();
+                if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ cá nhân! Hãy dùng `/taoprofile` trước.", flags: ['Ephemeral'] });
+                return await openPhotoEditorDashboard(interaction, user.id);
+            }
+        }
+
+        // --- LỆNH /XOAPROFILE ---
+        if (commandName === "xoaprofile") {
+            if (isAdmin) {
+                const selectMenu = await createRegisteredUsersSelectMenu("select_delete_profile", "Chọn thành viên cần xóa hồ sơ vĩnh viễn...");
+                if (!selectMenu) return interaction.reply({ content: "❌ Không thể xóa vì danh sách hiện đang trống!", flags: ['Ephemeral'] });
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+                return await interaction.reply({ content: "🚨 **Chọn thành viên bạn muốn xóa hồ sơ:**", components: [row], flags: ['Ephemeral'] });
+            } else {
+                if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền xóa hồ sơ cá nhân!", flags: ['Ephemeral'] });
+                const data = loadData();
+                if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ cá nhân để xóa.", flags: ['Ephemeral'] });
+
+                const confirmRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`confirm_delete_${user.id}`).setLabel("Xác Nhận Xóa").setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId("cancel_delete").setLabel("Hủy Bỏ").setStyle(ButtonStyle.Secondary)
+                );
+                return interaction.reply({ content: "⚠️ Bạn có chắc chắn muốn xóa hồ sơ cá nhân của mình khỏi Sảnh Danh Vọng không?", components: [confirmRow], flags: ['Ephemeral'] });
+            }
+        }
+
+        // --- LỆNH /STICKY ---
+        if (commandName === "sticky") {
+            const modal = new ModalBuilder().setCustomId("sticky_modal").setTitle("Cấu hình Tin nhắn Ghim Kênh");
+            const noidungInput = new TextInputBuilder()
+                .setCustomId("modal_sticky_content")
+                .setLabel("Nhập nội dung ghim (Xuống dòng tự do)")
+                .setStyle(TextInputStyle.Paragraph) 
+                .setPlaceholder("📌 /addacc thêm acc vào kho\n📥 /panel mượn acc...")
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder().addComponents(noidungInput));
+            return await interaction.showModal(modal);
+        }
+
+        // --- LỆNH /UNSTICKY ---
+        if (commandName === "unsticky") {
+            await interaction.deferReply({ flags: ['Ephemeral'] });
+            const stickyData = loadStickyData();
+            if (!stickyData[channelId]) return await interaction.editReply({ content: "❌ Kênh này hiện tại không có tin nhắn dính nào cả." });
+
+            if (stickyData[channelId].lastMessageId) {
+                const oldMsg = await interaction.channel.messages.fetch(stickyData[channelId].lastMessageId).catch(() => null);
+                if (oldMsg) await oldMsg.delete().catch(() => null);
+            }
+
+            delete stickyData[channelId];
+            saveStickyData(stickyData);
+            return await interaction.editReply({ content: "✅ Đã gỡ bỏ tính năng tin nhắn dính thành công tại kênh này!" });
+        }
+
+        // --- LỆNH /BIRTHDAYS ---
+        if (commandName === "birthdays") {
+            await interaction.deferReply();
+            const data = loadData();
+            let listText = ""; let index = 1;
+            for (const userId in data) {
+                const userData = data[userId];
+                if (userData.day && userData.month) {
+                    const daysLeft = getDaysUntilBirthday(userData.day, userData.month);
+                    const countdownText = daysLeft === 0 ? "🎂 Hôm nay luôn!" : `Còn **${daysLeft} ngày**`;
+                    listText += `#${index} 👤 **${userData.name}**\n🎂 ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}\n⏳ ${countdownText}\n\n`;
+                    index++;
+                }
+            }
+            const listEmbed = new EmbedBuilder().setColor("#FFB6C1").setTitle("🎂 DANH SÁCH SINH NHẬT THÀNH VIÊN 🎂").setDescription(listText || "Chưa có thành viên nào cập nhật hồ sơ sinh nhật.").setTimestamp();
+            return await interaction.editReply({ embeds: [listEmbed] });
+        }
+
+        // --- LỆNH /TAOPROFILE ---
+        if (commandName === "taoprofile") {
+            if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sử dụng lệnh này!", flags: ['Ephemeral'] });
+            
+            const imageUrls = [
+                interaction.options.getAttachment("anh1")?.url,
+                interaction.options.getAttachment("anh2")?.url,
+                interaction.options.getAttachment("anh3")?.url,
+                interaction.options.getAttachment("anh4")?.url
+            ].filter(url => url !== undefined);
+
+            tempImages.set(user.id, imageUrls);
+
+            const modal = new ModalBuilder().setCustomId("profile_modal").setTitle("Thông Tin Hồ Sơ Cá Nhân");
+            const nameInput = new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true);
+            const sloganInput = new TextInputBuilder().setCustomId("modal_slogan").setLabel("Câu nói tâm đắc / Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true);
+            const locationInput = new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true);
+            const hobbiesInput = new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true);
+            const bdayInput = new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06 hoặc 15/06/2004)").setStyle(TextInputStyle.Short).setRequired(false);
+            
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(nameInput),
+                new ActionRowBuilder().addComponents(sloganInput),
+                new ActionRowBuilder().addComponents(locationInput),
+                new ActionRowBuilder().addComponents(hobbiesInput),
+                new ActionRowBuilder().addComponents(bdayInput)
+            );
+            return await interaction.showModal(modal);
+        }
+    }
+
+    // ------------------------------------------
+    // 2. XỬ LÝ STRING SELECT MENUS (DÀNH CHO ADMIN)
+    // ------------------------------------------
+    if (interaction.isStringSelectMenu()) {
+        const { customId, values } = interaction;
+        const targetId = values[0];
+
+        if (customId === "select_edit_profile") {
+            return await openEditProfileModal(interaction, targetId);
+        }
+        
+        if (customId === "select_edit_photos") {
+            return await openPhotoEditorDashboard(interaction, targetId);
+        }
+
+        if (customId === "select_delete_profile") {
+            const data = loadData();
+            if (!data[targetId]) return interaction.reply({ content: "❌ Lỗi: Hồ sơ cá nhân không tồn tại.", flags: ['Ephemeral'] });
+
+            const targetName = data[targetId].name || targetId;
+            delete data[targetId];
+            saveData(data);
+
+            return await interaction.update({ content: `✅ Đã xóa thành công hồ sơ cá nhân của **${targetName}** (<@${targetId}>) khỏi danh sách!`, components: [] });
+        }
+    }
+
+    // ------------------------------------------
+    // 3. XỬ LÝ MODALS SUBMIT FORM
+    // ------------------------------------------
+    if (interaction.isModalSubmit()) {
+        const { customId, guild, fields } = interaction;
+
+        // --- SUBMIT MODAL TẠO PROFILE ---
+        if (customId === "profile_modal") {
+            await interaction.deferReply({ flags: ['Ephemeral'] });
+            const name = fields.getTextInputValue("modal_ten");
+            const slogan = fields.getTextInputValue("modal_slogan");
+            const location = fields.getTextInputValue("modal_noio");
+            const hobbies = fields.getTextInputValue("modal_sothich");
+            const bdayRaw = fields.getTextInputValue("modal_ngaysinh").trim();
+
+            let day = null, month = null, year = null;
+            if (bdayRaw) {
+                const parts = bdayRaw.split(/[-/.]/);
+                if (parts.length >= 2) { 
+                    day = parseInt(parts[0], 10); 
+                    month = parseInt(parts[1], 10); 
+                    if (parts.length >= 3) year = parseInt(parts[2], 10); 
+                }
+                if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12 || (year && (year < 1900 || year > 2026))) {
+                    return interaction.editReply({ content: "❌ Định dạng ngày sinh hoặc năm sinh không hợp lệ!" });
+                }
+            }
+
+            const imageUrls = tempImages.get(interaction.user.id) || [];
+            if (imageUrls.length === 0) return interaction.editReply({ content: "❌ Lỗi: Không tìm thấy tệp ảnh tạm thời." });
+
+            const data = loadData();
+            data[interaction.user.id] = { name, slogan, location, hobbies, images: imageUrls, day, month, year };
+            saveData(data);
+            tempImages.delete(interaction.user.id);
+
+            await sendProfileCardToHall(guild, interaction.user.id, data[interaction.user.id], "Sảnh danh vọng 🏆");
+            return await interaction.editReply({ content: `✅ Đã khởi tạo Profile sảnh danh vọng thành công!` });
+        }
+
+        // --- SUBMIT MODAL SỬA PROFILE ---
+        if (customId.startsWith("edit_profile_modal_")) {
+            await interaction.deferReply({ flags: ['Ephemeral'] });
+            const targetId = customId.replace("edit_profile_modal_", "");
+            
+            const name = fields.getTextInputValue("modal_ten");
+            const slogan = fields.getTextInputValue("modal_slogan");
+            const location = fields.getTextInputValue("modal_noio");
+            const hobbies = fields.getTextInputValue("modal_sothich");
+            const bdayRaw = fields.getTextInputValue("modal_ngaysinh").trim();
+
+            let day = null, month = null, year = null;
+            if (bdayRaw) {
+                const parts = bdayRaw.split(/[-/.]/);
+                if (parts.length >= 2) {
+                    day = parseInt(parts[0], 10);
+                    month = parseInt(parts[1], 10);
+                    if (parts.length >= 3) year = parseInt(parts[2], 10);
+                }
+                if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12 || (year && (year < 1900 || year > 2026))) {
+                    return interaction.editReply({ content: "❌ Định dạng ngày tháng sinh không hợp lệ!" });
+                }
+            }
+
+            const data = loadData();
+            const existing = data[targetId] || {};
+            let imageUrls = existing.images || (existing.image ? [existing.image] : []) || [];
+
+            if (imageUrls.length === 0) {
+                return interaction.editReply({ content: "❌ Lỗi: Không tìm thấy ảnh cũ trong tệp hồ sơ cá nhân để hiển thị." });
+            }
+
+            data[targetId] = { name, slogan, location, hobbies, images: imageUrls, day, month, year };
+            saveData(data);
+
+            await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆 (Đã cập nhật thông tin)");
+            return await interaction.editReply({ content: `✅ Đã lưu và cập nhật lại thông tin sảnh danh vọng thành công!` });
+        }
+
+        // --- SUBMIT MODAL TIN NHẮN GHIM ---
+        if (customId === "sticky_modal") {
+            await interaction.deferReply({ flags: ['Ephemeral'] });
+            let text = fields.getTextInputValue("modal_sticky_content");
+            text = text.replace(/\\n/g, '\n').replace(/\|/g, '\n');
+
+            const stickyData = loadStickyData();
+            
+            if (stickyData[interaction.channel.id]?.lastMessageId) {
+                const oldMsg = await interaction.channel.messages.fetch(stickyData[interaction.channel.id].lastMessageId).catch(() => null);
+                if (oldMsg) await oldMsg.delete().catch(() => null);
+            }
+
+            const stickyEmbed = new EmbedBuilder().setColor("#F1C40F").setTitle("📌 Tin nhắn ghim:").setDescription(text).setTimestamp();
+            const newMsg = await interaction.channel.send({ embeds: [stickyEmbed] });
+
+            stickyData[interaction.channel.id] = { text: text, lastMessageId: newMsg.id };
+            saveStickyData(stickyData);
+
+            return await interaction.editReply({ content: "✅ Đã tạo và ghim tin nhắn dính chuẩn xuống dòng thành công cho kênh này!" });
+        }
+    }
+
+    // ------------------------------------------
+    // 4. XỬ LÝ BUTTON INTERACTIONS (NÚT BẤM)
+    // ------------------------------------------
+    if (interaction.isButton()) {
+        const { customId, user } = interaction;
+
+        // --- PHÂN TRANG ALBUM ẢNH (SLIDE) ---
+        if (customId.startsWith("slide_")) {
+            const parts = customId.split("_");
+            const profileUserId = parts[1];
+            const targetIndex = parseInt(parts[2], 10);
+
+            const data = loadData();
+            const userData = data[profileUserId];
+            if (!userData || !userData.images) return interaction.reply({ content: "❌ Không có dữ liệu ảnh phân trang!", flags: ['Ephemeral'] });
+
+            const total = userData.images.length;
+            const newEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
+            newEmbed.setImage(userData.images[targetIndex]);
+
+            const prevIndex = targetIndex === 0 ? total - 1 : targetIndex - 1;
+            const nextIndex = targetIndex === total - 1 ? 0 : targetIndex + 1;
+
+            const newRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`slide_${profileUserId}_${prevIndex}_prev`).setLabel('<<').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('dummy').setLabel(`${targetIndex + 1}/${total}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                new ButtonBuilder().setCustomId(`slide_${profileUserId}_${nextIndex}_next`).setLabel('>>').setStyle(ButtonStyle.Secondary)
+            );
+
+            return await interaction.update({ embeds: [newEmbed], components: [newRow] });
+        }
+
+        // --- THAY ĐỔI ẢNH TRỰC QUAN (NÚT BẤM CHỌN SỬA ẢNH CHI TIẾT) ---
+        if (customId.startsWith("changephoto_")) {
+            const parts = customId.split("_");
+            const targetId = parts[1];
+            const imgIndex = parseInt(parts[2], 10);
+
+            await interaction.update({ content: `📸 **[ĐANG CHỜ ẢNH]** Vui lòng kéo thả hoặc tải lên **1 ảnh mới** vào kênh này trong vòng 60 giây để ghi đè vào **Vị trí ảnh thứ ${imgIndex + 1}**...`, embeds: [], components: [] });
+
+            const filter = m => m.author.id === user.id && m.attachments.size > 0;
+            const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 60000 });
+
+            collector.on("collect", async m => {
+                const attachment = m.attachments.first();
+                const newUrl = attachment.url;
+
+                const data = loadData();
+                const existing = data[targetId];
+
+                if (existing) {
+                    if (!existing.images) {
+                        existing.images = existing.image ? [existing.image] : [];
+                    }
+                    existing.images[imgIndex] = newUrl;
+                    existing.images = existing.images.filter(x => x != null);
+
+                    data[targetId] = existing;
+                    saveData(data);
+
+                    await m.delete().catch(() => null); // Dọn dẹp ảnh rác trong kênh chat
+                    await sendProfileCardToHall(interaction.guild, targetId, existing, "Sảnh danh vọng 🏆 (Đã cập nhật ảnh)");
+                    await interaction.followUp({ content: `✅ Cập nhật bộ sưu tập ảnh thành công tại vị trí số **${imgIndex + 1}**!`, flags: ['Ephemeral'] });
+                }
+            });
+
+            collector.on("end", (collected, reason) => {
+                if (reason === "time") {
+                    interaction.followUp({ content: "⏳ Thao tác chỉnh sửa ảnh đã bị hủy do hết thời gian chờ 60 giây.", flags: ['Ephemeral'] });
+                }
+            });
+            return;
+        }
+
+        // --- XÁC NHẬN XÓA PROFILE CỦA USER ---
+        if (customId.startsWith("confirm_delete_")) {
+            const targetId = customId.replace("confirm_delete_", "");
+            const data = loadData();
+            delete data[targetId];
+            saveData(data);
+            return await interaction.update({ content: "✅ Đã dọn dẹp và xóa hồ sơ cá nhân của bạn thành công khỏi sảnh danh vọng!", components: [] });
+        }
+
+        if (customId === "cancel_delete") {
+            return await interaction.update({ content: "❌ Đã hủy thao tác xóa hồ sơ cá nhân.", components: [] });
+        }
     }
 });
 
