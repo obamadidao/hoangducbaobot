@@ -34,9 +34,6 @@ const tempImages = new Map();
 const tempEventRoles = new Map();
 const processingChannels = new Set();
 
-// ==========================================
-// HÀM TIỆN ÍCH TRUY XUẤT DATABASE (JSON)
-// ==========================================
 function readJson(path) {
     if (!fs.existsSync(path)) return {};
     try {
@@ -78,9 +75,6 @@ function getDaysUntilBirthday(day, month) {
     return Math.ceil((bdayTest - now) / (1000 * 60 * 60 * 24));
 }
 
-// ==========================================
-// SỰ KIỆN BOT READY & ĐỒNG BỘ LỆNH CHUẨN XÁC
-// ==========================================
 client.once("ready", async () => {
     console.log(`✅ Bot online: ${client.user.tag}`);
 
@@ -142,28 +136,30 @@ client.once("ready", async () => {
             .setDescription('Gỡ bỏ tin nhắn dính tại kênh này')
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
         
-        // Đăng ký lệnh ẩn danh /andanh từ tệp bên ngoài vào Discord API
         andanhCommand.data.toJSON()
     ];
 
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
     try {
-        console.log('🔄 Đang đồng bộ hóa lệnh lên hệ thống Discord...');
-        // 1. Đồng bộ lệnh cấp độ Toàn Cầu (Global) để hiện ngay lập tức
+        console.log('🔄 Đang đồng bộ hóa cấu hình lệnh toàn cầu duy nhất...');
+        
+        // 1. CHỈ đăng ký lệnh cấp độ Toàn Cầu (Global) để tránh bị lặp lại trong server
         await rest.put(
             Routes.applicationCommands(client.user.id),
             { body: commands }
         );
-        // 2. Dự phòng đăng ký cấp độ Server (Guild)
+
+        // 2. Tự động quét và xóa sạch hoàn toàn các lệnh cũ ở cấp độ Server (Guild) để giải quyết triệt để lỗi hiện 2 lần!
         const guilds = await client.guilds.fetch();
         for (const [guildId] of guilds) {
             await rest.put(
                 Routes.applicationGuildCommands(client.user.id, guildId),
-                { body: commands }
+                { body: [] } // Gửi mảng rỗng để ghi đè sạch các lệnh cục bộ cũ
             ).catch(() => null);
         }
-        console.log('✅ Đồng bộ tất cả lệnh lên Discord hoàn tất!');
+        
+        console.log('✅ Đã đồng bộ cấu hình lệnh Toàn Cầu và dọn sạch các lệnh trùng lặp cấp Guild!');
     } catch (error) {
         console.error('❌ Lỗi đăng ký lệnh:', error);
     }
@@ -177,7 +173,6 @@ client.once("ready", async () => {
         }
     });
 
-    // Cron job chúc mừng sinh nhật & sự kiện lúc 0:00 hàng ngày
     const loiChucMacDinh = [
         "Ôi dời ơi **{name}**! ăn cứt đi nhá :zzzzz_tom_blushh: hehe",
         "Tới công chuyện luôn :tom_creepylaugh: ! Sinh nhật của **{name}**. Liên hệ ngay cho anh zai @fowf.ongggg278 gửi qr để nhận ngay 2 lít trong sinh nhật của mình nhé",
@@ -267,9 +262,6 @@ client.once("ready", async () => {
     });
 });
 
-// ==========================================
-// GHIM TIN NHẮN DÍNH (STICKY MESSAGE)
-// ==========================================
 client.on("messageCreate", async (message) => {
     if (message.author.bot || !message.guild) return;
 
@@ -319,9 +311,6 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     }
 });
 
-// ==========================================
-// CÁC HÀM TRỢ GIÚP GIAO DIỆN (UI HELPERS)
-// ==========================================
 async function syncAllProfiles(guild) {
     const data = loadData();
     for (const targetId in data) {
@@ -495,9 +484,6 @@ async function openPhotoEditorDashboard(interaction, targetId) {
     }
 }
 
-// ==========================================
-// KHỐI LẮNG NGHE SỰ KIỆN TƯƠNG TÁC
-// ==========================================
 client.on("interactionCreate", async interaction => {
     if (interaction.isChatInputCommand()) {
         const { commandName, channelId, guild, member, user } = interaction;
@@ -744,9 +730,6 @@ client.on("interactionCreate", async interaction => {
         }
     }
 
-    // ------------------------------------------
-    // 2. XỬ LÝ STRING SELECT MENUS
-    // ------------------------------------------
     if (interaction.isStringSelectMenu()) {
         const { customId, values, guild } = interaction;
         const targetId = values[0];
@@ -827,9 +810,6 @@ client.on("interactionCreate", async interaction => {
         }
     }
 
-    // ------------------------------------------
-    // 3. XỬ LÝ MODALS SUBMIT
-    // ------------------------------------------
     if (interaction.isModalSubmit()) {
         const { customId, guild, fields, user } = interaction;
 
@@ -988,9 +968,6 @@ client.on("interactionCreate", async interaction => {
         }
     }
 
-    // ------------------------------------------
-    // 4. XỬ LÝ BUTTON INTERACTIONS
-    // ------------------------------------------
     if (interaction.isButton()) {
         const { customId, user, guild } = interaction;
 
