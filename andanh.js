@@ -31,7 +31,7 @@ module.exports = {
 
         // Tạo payload tin nhắn gửi đi dưới danh nghĩa của Bot
         const messagePayload = {
-            content: `🤫 **[Tin nhắn ẩn danh]:** ${content}`,
+            content: `**[/andanh]:** ${content}`,
             files: []
         };
 
