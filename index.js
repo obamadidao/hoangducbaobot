@@ -87,6 +87,15 @@ client.once("ready", async () => {
             .addAttachmentOption(option => option.setName('anh3').setDescription('Ảnh profile 3').setRequired(false))
             .addAttachmentOption(option => option.setName('anh4').setDescription('Ảnh profile 4').setRequired(false)),
         new SlashCommandBuilder()
+            .setName('taohoprofile')
+            .setDescription('Tạo hộ hồ sơ cá nhân cho thành viên khác (Chỉ dùng cho QTV)')
+            .addUserOption(option => option.setName('user').setDescription('Thành viên muốn tạo hộ').setRequired(true))
+            .addAttachmentOption(option => option.setName('anh1').setDescription('Ảnh profile 1').setRequired(true))
+            .addAttachmentOption(option => option.setName('anh2').setDescription('Ảnh profile 2').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh3').setDescription('Ảnh profile 3').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh4').setDescription('Ảnh profile 4').setRequired(false))
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+        new SlashCommandBuilder()
             .setName('suaprofile')
             .setDescription('Sửa hồ sơ cá nhân và ngày sinh dạng chữ (Siêu gọn gàng)'),
         new SlashCommandBuilder()
@@ -120,6 +129,17 @@ client.once("ready", async () => {
     } catch (error) {
         console.error('❌ Lỗi khi đăng ký lệnh:', error);
     }
+
+    // Tự động kiểm tra trạng thái ẩn/hiện profile của toàn server hàng ngày lúc 1:00 AM
+    cron.schedule("0 1 * * *", async () => {
+        console.log("⏳ Bắt đầu quét đồng bộ trạng thái ẩn/hiện sảnh danh vọng...");
+        const guilds = await client.guilds.fetch();
+        for (const [guildId] of guilds) {
+            const guild = await client.guilds.fetch(guildId).catch(() => null);
+            if (!guild) continue;
+            await syncAllProfiles(guild);
+        }
+    });
 
     // ==========================================
     // CẤU HÌNH LỜI CHÚC & CRON JOB SINH NHẬT
@@ -155,7 +175,8 @@ client.once("ready", async () => {
 
             for (const userId in data) {
                 const userData = data[userId];
-                if (userData.day === day && userData.month === month) {
+                // Chỉ chúc sinh nhật nếu profile của họ không bị ẩn
+                if (userData.day === day && userData.month === month && !userData.hidden) {
                     const tagContent = `Nay là sinh nhật của **${userData.name}** (<@${userId}>) đấy anh em ạ <@&1207064301957947443>, <@&1258567277695995904> ơi✨🎉`;
                     let danhSachQuay = [...loiChucMacDinh];
                     
@@ -170,7 +191,8 @@ client.once("ready", async () => {
                     const loiChucHoanChinh = cauChucNgauNhien.replace(/{name}/g, userData.name);
 
                     try {
-                        const birthdayChannel = await guild.channels.fetch("1313150267881033739").catch(() => null);
+                        const birthdayChannelId = process.env.BIRTHDAY_CHANNEL_ID || "1313150267881033739";
+                        const birthdayChannel = await guild.channels.fetch(birthdayChannelId).catch(() => null);
                         if (birthdayChannel) {
                             const displayImg = userData.images ? userData.images[0] : userData.image;
                             const bdayEmbed = new EmbedBuilder()
@@ -235,14 +257,72 @@ client.on("messageCreate", async (message) => {
     processingChannels.delete(message.channel.id);
 });
 
+// LẮNG NGHE SỰ KIỆN THAY ĐỔI ROLE ĐỂ ẨN/HIỆN PROFILE TỰ ĐỘNG
+client.on("guildMemberUpdate", async (oldMember, newMember) => {
+    const regularRoleId = "1207064301957947443";
+    const investorRoleId = "1258567277695995904";
+
+    const oldRegular = oldMember.roles.cache.has(regularRoleId);
+    const newRegular = newMember.roles.cache.has(regularRoleId);
+    const oldInvestor = oldMember.roles.cache.has(investorRoleId);
+    const newInvestor = newMember.roles.cache.has(investorRoleId);
+
+    // Nếu có sự thay đổi về role Thành viên thường trực hoặc Nhà đầu tư
+    if (oldRegular !== newRegular || oldInvestor !== newInvestor) {
+        const data = loadData();
+        if (data[newMember.id]) {
+            console.log(`🔄 Phát hiện thay đổi Role của ${newMember.user.tag}. Đang cập nhật trạng thái Sảnh danh vọng...`);
+            await sendProfileCardToHall(newMember.guild, newMember.id, data[newMember.id]);
+        }
+    }
+});
+
 // ==========================================
 // CÁC HÀM TRỢ GIÚP GIAO DIỆN (UI HELPERS)
 // ==========================================
 
-// Gửi hoặc cập nhật thẻ Profile lên Sảnh Danh Vọng (Hàm dùng chung)
+// Quét toàn bộ sảnh danh vọng để kiểm tra đồng bộ ẩn/hiện theo Role
+async function syncAllProfiles(guild) {
+    const data = loadData();
+    for (const targetId in data) {
+        await sendProfileCardToHall(guild, targetId, data[targetId]).catch(err => console.error(err));
+    }
+    console.log("✅ Đồng bộ ẩn/hiện hoàn tất!");
+}
+
+// Gửi hoặc cập nhật trực tiếp thẻ Profile lên Sảnh Danh Vọng (Hàm dùng chung)
 async function sendProfileCardToHall(guild, targetId, userData, footerText = "Sảnh danh vọng 🏆") {
     const userObj = await client.users.fetch(targetId).catch(() => null);
-    
+    if (!userObj) return;
+
+    // QUY TẮC HIỂN THỊ ROLE MÀ USER YÊU CẦU:
+    const member = await guild.members.fetch(targetId).catch(() => null);
+    const isRegularMember = member ? member.roles.cache.has("1207064301957947443") : false;
+    const isInvestor = member ? member.roles.cache.has("1258567277695995904") : false;
+
+    // Chỉ ẩn khi KHÔNG có Regular Member VÀ KHÔNG có Investor
+    const shouldHide = !isRegularMember && !isInvestor;
+
+    const profileChannelId = process.env.PROFILE_CHANNEL_ID;
+    const profileChannel = await guild.channels.fetch(profileChannelId).catch(() => null);
+    if (!profileChannel) return;
+
+    const data = loadData();
+
+    // 1. Trường hợp phải ẨN profile
+    if (shouldHide) {
+        if (userData.messageId) {
+            const oldMsg = await profileChannel.messages.fetch(userData.messageId).catch(() => null);
+            if (oldMsg) await oldMsg.delete().catch(() => null);
+        }
+        data[targetId].messageId = null;
+        data[targetId].hidden = true;
+        saveData(data);
+        console.log(`🙈 Đã ẩn profile của ${userObj.tag} do không đủ Role.`);
+        return;
+    }
+
+    // 2. Trường hợp HIỂN THỊ profile (Vẽ Embed)
     let descriptionText = `> 💬 *"${userData.slogan}"*\n\n📌 **Nơi ở:** ${userData.location}\n🩷 **Sở thích:** ${userData.hobbies}`;
     if (userData.day && userData.month) {
         descriptionText += `\n🎂 **Ngày sinh:** ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}`;
@@ -253,10 +333,10 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
     const profileEmbed = new EmbedBuilder()
         .setColor("#2F3136")
         .setTitle(`☁️ ${userData.name} ☁️`)
-        .setAuthor({ name: userObj ? userObj.tag : userData.name, iconURL: userObj ? userObj.displayAvatarURL() : null })
+        .setAuthor({ name: userObj.tag, iconURL: userObj.displayAvatarURL() })
         .setDescription(descriptionText)
         .setImage(imageUrls[0] || null)
-        .setThumbnail(userObj ? userObj.displayAvatarURL({ dynamic: true }) : null)
+        .setThumbnail(userObj.displayAvatarURL({ dynamic: true }))
         .setFooter({ text: footerText })
         .setTimestamp();
 
@@ -271,14 +351,41 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
         components.push(row);
     }
 
-    try {
-        const profileChannel = await guild.channels.fetch(process.env.PROFILE_CHANNEL_ID);
-        if (profileChannel) {
-            await profileChannel.send({ embeds: [profileEmbed], components });
+    let messageSent = null;
+
+    // SỬA TRỰC TIẾP TIN NHẮN CŨ NẾU CÓ MESSAGE_ID TRONG FILE JSON
+    if (userData.messageId) {
+        const existingMsg = await profileChannel.messages.fetch(userData.messageId).catch(() => null);
+        if (existingMsg) {
+            messageSent = await existingMsg.edit({ embeds: [profileEmbed], components }).catch(() => null);
         }
-    } catch (err) {
-        console.error("❌ Lỗi gửi thẻ profile lên sảnh danh vọng:", err);
     }
+
+    // Nếu không sửa được hoặc chưa có tin cũ, thì gửi tin mới tinh
+    if (!messageSent) {
+        messageSent = await profileChannel.send({ embeds: [profileEmbed], components }).catch(() => null);
+    }
+
+    if (messageSent) {
+        data[targetId].messageId = messageSent.id;
+        data[targetId].hidden = false;
+        saveData(data);
+    }
+}
+
+// Hàm dọn dẹp và xóa triệt để hồ sơ (Xóa file JSON & Xóa luôn tin nhắn trên Sảnh Danh Vọng)
+async function deleteProfileCard(guild, targetId) {
+    const data = loadData();
+    const userData = data[targetId];
+    if (userData && userData.messageId) {
+        const profileChannel = await guild.channels.fetch(process.env.PROFILE_CHANNEL_ID).catch(() => null);
+        if (profileChannel) {
+            const oldMsg = await profileChannel.messages.fetch(userData.messageId).catch(() => null);
+            if (oldMsg) await oldMsg.delete().catch(() => null);
+        }
+    }
+    delete data[targetId];
+    saveData(data);
 }
 
 // Bật Modal sửa chữ (Điền sẵn toàn bộ data cũ)
@@ -411,7 +518,7 @@ client.on("interactionCreate", async interaction => {
         const { commandName, channelId, guild, member, user } = interaction;
 
         // Chặn kênh setup ngoại trừ các lệnh sticky
-        if (["birthdays", "taoprofile", "suaprofile", "suaanh", "xoaprofile"].includes(commandName) && channelId !== process.env.SETUP_CHANNEL_ID) {
+        if (["birthdays", "taoprofile", "taohoprofile", "suaprofile", "suaanh", "xoaprofile"].includes(commandName) && channelId !== process.env.SETUP_CHANNEL_ID) {
             return interaction.reply({ content: `❌ Lệnh này chỉ dùng được ở kênh <#${process.env.SETUP_CHANNEL_ID}>!`, flags: ['Ephemeral'] });
         }
 
@@ -531,7 +638,40 @@ client.on("interactionCreate", async interaction => {
 
             tempImages.set(user.id, imageUrls);
 
-            const modal = new ModalBuilder().setCustomId("profile_modal").setTitle("Thông Tin Hồ Sơ Cá Nhân");
+            const modal = new ModalBuilder().setCustomId(`profile_modal_${user.id}`).setTitle("Thông Tin Hồ Sơ Cá Nhân");
+            const nameInput = new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true);
+            const sloganInput = new TextInputBuilder().setCustomId("modal_slogan").setLabel("Câu nói tâm đắc / Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true);
+            const locationInput = new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true);
+            const hobbiesInput = new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true);
+            const bdayInput = new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06 hoặc 15/06/2004)").setStyle(TextInputStyle.Short).setRequired(false);
+            
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(nameInput),
+                new ActionRowBuilder().addComponents(sloganInput),
+                new ActionRowBuilder().addComponents(locationInput),
+                new ActionRowBuilder().addComponents(hobbiesInput),
+                new ActionRowBuilder().addComponents(bdayInput)
+            );
+            return await interaction.showModal(modal);
+        }
+
+        // --- LỆNH /TAOHOPROFILE (ADMIN TẠO HỘ) ---
+        if (commandName === "taohoprofile") {
+            if (!isAdmin) return interaction.reply({ content: "❌ Chỉ Quản trị viên mới được dùng lệnh tạo hộ này!", flags: ['Ephemeral'] });
+            
+            const targetUser = interaction.options.getUser("user");
+            
+            const imageUrls = [
+                interaction.options.getAttachment("anh1")?.url,
+                interaction.options.getAttachment("anh2")?.url,
+                interaction.options.getAttachment("anh3")?.url,
+                interaction.options.getAttachment("anh4")?.url
+            ].filter(url => url !== undefined);
+
+            // Lưu ảnh tạm thời gán thẳng với ID người được tạo hộ
+            tempImages.set(targetUser.id, imageUrls);
+
+            const modal = new ModalBuilder().setCustomId(`profile_modal_${targetUser.id}`).setTitle(`Tạo hộ hồ sơ: ${targetUser.username}`);
             const nameInput = new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true);
             const sloganInput = new TextInputBuilder().setCustomId("modal_slogan").setLabel("Câu nói tâm đắc / Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true);
             const locationInput = new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true);
@@ -569,10 +709,9 @@ client.on("interactionCreate", async interaction => {
             if (!data[targetId]) return interaction.reply({ content: "❌ Lỗi: Hồ sơ cá nhân không tồn tại.", flags: ['Ephemeral'] });
 
             const targetName = data[targetId].name || targetId;
-            delete data[targetId];
-            saveData(data);
+            await deleteProfileCard(interaction.guild, targetId);
 
-            return await interaction.update({ content: `✅ Đã xóa thành công hồ sơ cá nhân của **${targetName}** (<@${targetId}>) khỏi danh sách!`, components: [] });
+            return await interaction.update({ content: `✅ Đã xóa thành công hồ sơ cá nhân của **${targetName}** (<@${targetId}>) khỏi danh sách và Sảnh Danh Vọng!`, components: [] });
         }
     }
 
@@ -582,9 +721,13 @@ client.on("interactionCreate", async interaction => {
     if (interaction.isModalSubmit()) {
         const { customId, guild, fields } = interaction;
 
-        // --- SUBMIT MODAL TẠO PROFILE ---
-        if (customId === "profile_modal") {
+        // --- SUBMIT MODAL TẠO PROFILE (CẢ TỰ TẠO & ĐƯỢC TẠO HỘ) ---
+        if (customId.startsWith("profile_modal_")) {
             await interaction.deferReply({ flags: ['Ephemeral'] });
+            
+            // Lấy ID của mục tiêu từ Suffix CustomID
+            const targetId = customId.replace("profile_modal_", "");
+
             const name = fields.getTextInputValue("modal_ten");
             const slogan = fields.getTextInputValue("modal_slogan");
             const location = fields.getTextInputValue("modal_noio");
@@ -604,16 +747,25 @@ client.on("interactionCreate", async interaction => {
                 }
             }
 
-            const imageUrls = tempImages.get(interaction.user.id) || [];
-            if (imageUrls.length === 0) return interaction.editReply({ content: "❌ Lỗi: Không tìm thấy tệp ảnh tạm thời." });
+            const imageUrls = tempImages.get(targetId) || [];
+            if (imageUrls.length === 0) return interaction.editReply({ content: "❌ Lỗi: Không tìm thấy tệp ảnh tạm thời của hồ sơ." });
 
             const data = loadData();
-            data[interaction.user.id] = { name, slogan, location, hobbies, images: imageUrls, day, month, year };
+            
+            // Khởi tạo Object cấu trúc có messageId để định danh sửa tin nhắn về sau
+            data[targetId] = { 
+                name, slogan, location, hobbies, 
+                images: imageUrls, 
+                day, month, year, 
+                messageId: null, 
+                hidden: false 
+            };
             saveData(data);
-            tempImages.delete(interaction.user.id);
+            tempImages.delete(targetId);
 
-            await sendProfileCardToHall(guild, interaction.user.id, data[interaction.user.id], "Sảnh danh vọng 🏆");
-            return await interaction.editReply({ content: `✅ Đã khởi tạo Profile sảnh danh vọng thành công!` });
+            // Gửi hoặc cập nhật thẻ Profile lên Sảnh Danh Vọng
+            await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆");
+            return await interaction.editReply({ content: `✅ Đã lưu cấu hình và đưa hồ sơ cá nhân của <@${targetId}> lên sảnh danh vọng!` });
         }
 
         // --- SUBMIT MODAL SỬA PROFILE ---
@@ -648,7 +800,14 @@ client.on("interactionCreate", async interaction => {
                 return interaction.editReply({ content: "❌ Lỗi: Không tìm thấy ảnh cũ trong tệp hồ sơ cá nhân để hiển thị." });
             }
 
-            data[targetId] = { name, slogan, location, hobbies, images: imageUrls, day, month, year };
+            // Sửa nhưng giữ nguyên vẹn messageId cũ để bot chỉnh sửa tiếp
+            data[targetId] = { 
+                name, slogan, location, hobbies, 
+                images: imageUrls, 
+                day, month, year, 
+                messageId: existing.messageId || null, 
+                hidden: existing.hidden || false 
+            };
             saveData(data);
 
             await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆 (Đã cập nhật thông tin)");
@@ -755,10 +914,8 @@ client.on("interactionCreate", async interaction => {
         // --- XÁC NHẬN XÓA PROFILE CỦA USER ---
         if (customId.startsWith("confirm_delete_")) {
             const targetId = customId.replace("confirm_delete_", "");
-            const data = loadData();
-            delete data[targetId];
-            saveData(data);
-            return await interaction.update({ content: "✅ Đã dọn dẹp và xóa hồ sơ cá nhân của bạn thành công khỏi sảnh danh vọng!", components: [] });
+            await deleteProfileCard(interaction.guild, targetId);
+            return await interaction.update({ content: "✅ Đã dọn dẹp và xóa hồ sơ cá nhân của bạn thành công khỏi Sảnh Danh Vọng!", components: [] });
         }
 
         if (customId === "cancel_delete") {
