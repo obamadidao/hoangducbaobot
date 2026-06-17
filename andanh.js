@@ -1,7 +1,7 @@
 const { SlashCommandBuilder } = require("discord.js");
 
 module.exports = {
-    // 1. Khởi tạo Slash Command Builder cho lệnh ẩn danh
+    // 1. Định nghĩa Slash Command /andanh
     data: new SlashCommandBuilder()
         .setName("andanh")
         .setDescription("Gửi tin nhắn ẩn danh bảo mật vào kênh chat hiện tại (Ai cũng dùng được)")
@@ -16,20 +16,20 @@ module.exports = {
                 .setRequired(false)
         ),
 
-    // 2. Logic xử lý khi lệnh được kích hoạt
+    // 2. Xử lý Logic khi thực thi lệnh ẩn danh
     async execute(interaction) {
-        // Trả lời ẩn (Ephemeral) lập tức để tránh lỗi timeout của Discord và giấu danh tính người dùng
+        // Trả lời ẩn (Ephemeral) lập tức để tránh lỗi timeout của Discord và giấu danh tính người gửi
         await interaction.deferReply({ flags: ['Ephemeral'] });
 
         const content = interaction.options.getString("noidung");
         const attachment = interaction.options.getAttachment("anh");
-
         const channel = interaction.channel;
+
         if (!channel) {
             return await interaction.editReply({ content: "❌ Không thể xác định được kênh chat hiện tại để gửi tin nhắn!" });
         }
 
-        // Tạo payload tin nhắn gửi đi
+        // Tạo payload tin nhắn gửi đi dưới danh nghĩa của Bot
         const messagePayload = {
             content: `🤫 **[Tin nhắn ẩn danh]:** ${content}`,
             files: []
@@ -44,14 +44,14 @@ module.exports = {
         }
 
         try {
-            // Gửi tin nhắn sạch trực tiếp vào kênh chat thông qua tài khoản Bot
+            // Gửi tin nhắn trực tiếp vào kênh chat thông qua tài khoản Bot
             await channel.send(messagePayload);
 
-            // Báo cáo thành công riêng tư cho người dùng
+            // Báo cáo thành công riêng tư chỉ một mình người dùng nhìn thấy
             return await interaction.editReply({ content: "✅ Đã gửi tin nhắn ẩn danh thành công!" });
         } catch (error) {
             console.error("❌ Lỗi khi gửi tin nhắn ẩn danh:", error);
-            return await interaction.editReply({ content: "❌ Đã có lỗi xảy ra khi cố gắng gửi tin nhắn ẩn danh. Vui lòng kiểm tra quyền hạn viết tin nhắn của Bot tại kênh này!" });
+            return await interaction.editReply({ content: "❌ Không thể gửi tin nhắn ẩn danh. Vui lòng kiểm tra quyền hạn viết tin nhắn của Bot tại kênh này!" });
         }
     }
 };
