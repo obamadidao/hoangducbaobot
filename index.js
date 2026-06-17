@@ -3,7 +3,7 @@ const {
     Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
     ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
     REST, Routes, SlashCommandBuilder, PermissionFlagsBits,
-    StringSelectMenuBuilder, UserSelectMenuBuilder
+    StringSelectMenuBuilder
 } = require("discord.js");
 const cron = require("node-cron");
 const fs = require("fs");
@@ -21,7 +21,7 @@ const client = new Client({
 const FILE = fs.existsSync("/data") ? "/data/birthdays.json" : "./birthdays.json";
 const STICKY_FILE = fs.existsSync("/data") ? "/data/sticky.json" : "./sticky.json";
 
-const tempTextData = new Map(); // Lưu tạm dữ liệu chữ chờ có ảnh
+const tempImages = new Map();
 const processingChannels = new Set(); // Chặn tình trạng spam loop khi nhiều người nhắn cùng lúc
 
 // ==========================================
@@ -81,10 +81,19 @@ client.once("ready", async () => {
             .setDescription('Xem danh sách sinh nhật của tất cả thành viên (Chỉ dùng ở kênh Setup)'),
         new SlashCommandBuilder()
             .setName('taoprofile')
-            .setDescription('Tạo hồ sơ cá nhân và điền ngày sinh nhật'),
+            .setDescription('Tạo hồ sơ cá nhân và điền ngày sinh nhật')
+            .addAttachmentOption(option => option.setName('anh1').setDescription('Ảnh profile 1').setRequired(true))
+            .addAttachmentOption(option => option.setName('anh2').setDescription('Ảnh profile 2').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh3').setDescription('Ảnh profile 3').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh4').setDescription('Ảnh profile 4').setRequired(false)),
         new SlashCommandBuilder()
             .setName('taohoprofile')
             .setDescription('Tạo hộ hồ sơ cá nhân cho thành viên khác (Chỉ dùng cho QTV)')
+            .addUserOption(option => option.setName('user').setDescription('Thành viên muốn tạo hộ').setRequired(true))
+            .addAttachmentOption(option => option.setName('anh1').setDescription('Ảnh profile 1').setRequired(true))
+            .addAttachmentOption(option => option.setName('anh2').setDescription('Ảnh profile 2').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh3').setDescription('Ảnh profile 3').setRequired(false))
+            .addAttachmentOption(option => option.setName('anh4').setDescription('Ảnh profile 4').setRequired(false))
             .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
         new SlashCommandBuilder()
             .setName('suaprofile')
@@ -379,18 +388,18 @@ async function deleteProfileCard(guild, targetId) {
     saveData(data);
 }
 
-// Bật Modal sửa chữ hoặc khởi tạo ban đầu cho mục tiêu
-async function openProfileModal(interaction, targetId, isEdit = false) {
+// Bật Modal sửa chữ (Điền sẵn toàn bộ data cũ)
+async function openEditProfileModal(interaction, targetId) {
     const data = loadData();
-    const existing = data[targetId] || {};
+    const existing = data[targetId];
 
-    if (isEdit && !data[targetId]) {
+    if (!existing) {
         return interaction.reply({ content: `❌ Thành viên <@${targetId}> chưa tạo hồ sơ cá nhân nên không thể sửa!`, flags: ['Ephemeral'] });
     }
 
     const modal = new ModalBuilder()
-        .setCustomId(`profile_modal_${targetId}`)
-        .setTitle(isEdit ? `Sửa Hồ Sơ: ${existing.name || "Thành viên"}` : `Tạo Hồ Sơ Mới`);
+        .setCustomId(`edit_profile_modal_${targetId}`)
+        .setTitle(`Sửa Hồ Sơ: ${existing.name || "Thành viên"}`);
 
     const nameInput = new TextInputBuilder()
         .setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setValue(existing.name || "").setRequired(true);
@@ -515,25 +524,6 @@ client.on("interactionCreate", async interaction => {
 
         const isAdmin = member.permissions.has(PermissionFlagsBits.ManageMessages);
 
-        // --- LỆNH /TAOPROFILE (TỰ TẠO) ---
-        if (commandName === "taoprofile") {
-            if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sử dụng lệnh này!", flags: ['Ephemeral'] });
-            return await openProfileModal(interaction, user.id, false);
-        }
-
-        // --- LỆNH /TAOHOPROFILE (ADMIN TẠO HỘ) ---
-        if (commandName === "taohoprofile") {
-            if (!isAdmin) return interaction.reply({ content: "❌ Chỉ Quản trị viên mới được dùng lệnh tạo hộ này!", flags: ['Ephemeral'] });
-            
-            // Đưa ra thanh chọn Thành viên tự tìm kiếm (Discord User Select Menu)
-            const userSelect = new UserSelectMenuBuilder()
-                .setCustomId("select_taohoprofile_user")
-                .setPlaceholder("Nhập tên, biệt danh hoặc ID để tìm kiếm...");
-
-            const row = new ActionRowBuilder().addComponents(userSelect);
-            return await interaction.reply({ content: "👤 **Chọn thành viên bạn muốn tạo hộ hồ sơ:**", components: [row], flags: ['Ephemeral'] });
-        }
-
         // --- LỆNH /SUAPROFILE ---
         if (commandName === "suaprofile") {
             if (isAdmin) {
@@ -546,7 +536,7 @@ client.on("interactionCreate", async interaction => {
                 if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền chỉnh sửa hồ sơ!", flags: ['Ephemeral'] });
                 const data = loadData();
                 if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ! Hãy tạo bằng lệnh `/taoprofile`.", flags: ['Ephemeral'] });
-                return await openProfileModal(interaction, user.id, true);
+                return await openEditProfileModal(interaction, user.id);
             }
         }
 
@@ -634,26 +624,80 @@ client.on("interactionCreate", async interaction => {
             const listEmbed = new EmbedBuilder().setColor("#FFB6C1").setTitle("🎂 DANH SÁCH SINH NHẬT THÀNH VIÊN 🎂").setDescription(listText || "Chưa có thành viên nào cập nhật hồ sơ sinh nhật.").setTimestamp();
             return await interaction.editReply({ embeds: [listEmbed] });
         }
-    }
 
-    // ------------------------------------------
-    // 2. XỬ LÝ USER SELECT MENUS & STRING SELECT MENUS
-    // ------------------------------------------
-    if (interaction.isUserSelectMenu()) {
-        const { customId, values } = interaction;
-        if (customId === "select_taohoprofile_user") {
-            const targetId = values[0];
-            // Bật Modal thông tin cho mục tiêu được Admin chọn
-            return await openProfileModal(interaction, targetId, false);
+        // --- LỆNH /TAOPROFILE ---
+        if (commandName === "taoprofile") {
+            if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sử dụng lệnh này!", flags: ['Ephemeral'] });
+            
+            const imageUrls = [
+                interaction.options.getAttachment("anh1")?.url,
+                interaction.options.getAttachment("anh2")?.url,
+                interaction.options.getAttachment("anh3")?.url,
+                interaction.options.getAttachment("anh4")?.url
+            ].filter(url => url !== undefined);
+
+            tempImages.set(user.id, imageUrls);
+
+            const modal = new ModalBuilder().setCustomId(`profile_modal_${user.id}`).setTitle("Thông Tin Hồ Sơ Cá Nhân");
+            const nameInput = new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true);
+            const sloganInput = new TextInputBuilder().setCustomId("modal_slogan").setLabel("Câu nói tâm đắc / Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true);
+            const locationInput = new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true);
+            const hobbiesInput = new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true);
+            const bdayInput = new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06 hoặc 15/06/2004)").setStyle(TextInputStyle.Short).setRequired(false);
+            
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(nameInput),
+                new ActionRowBuilder().addComponents(sloganInput),
+                new ActionRowBuilder().addComponents(locationInput),
+                new ActionRowBuilder().addComponents(hobbiesInput),
+                new ActionRowBuilder().addComponents(bdayInput)
+            );
+            return await interaction.showModal(modal);
+        }
+
+        // --- LỆNH /TAOHOPROFILE (ADMIN TẠO HỘ) ---
+        if (commandName === "taohoprofile") {
+            if (!isAdmin) return interaction.reply({ content: "❌ Chỉ Quản trị viên mới được dùng lệnh tạo hộ này!", flags: ['Ephemeral'] });
+            
+            const targetUser = interaction.options.getUser("user");
+            
+            const imageUrls = [
+                interaction.options.getAttachment("anh1")?.url,
+                interaction.options.getAttachment("anh2")?.url,
+                interaction.options.getAttachment("anh3")?.url,
+                interaction.options.getAttachment("anh4")?.url
+            ].filter(url => url !== undefined);
+
+            // Lưu ảnh tạm thời gán thẳng với ID người được tạo hộ
+            tempImages.set(targetUser.id, imageUrls);
+
+            const modal = new ModalBuilder().setCustomId(`profile_modal_${targetUser.id}`).setTitle(`Tạo hộ hồ sơ: ${targetUser.username}`);
+            const nameInput = new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true);
+            const sloganInput = new TextInputBuilder().setCustomId("modal_slogan").setLabel("Câu nói tâm đắc / Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true);
+            const locationInput = new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true);
+            const hobbiesInput = new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true);
+            const bdayInput = new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06 hoặc 15/06/2004)").setStyle(TextInputStyle.Short).setRequired(false);
+            
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(nameInput),
+                new ActionRowBuilder().addComponents(sloganInput),
+                new ActionRowBuilder().addComponents(locationInput),
+                new ActionRowBuilder().addComponents(hobbiesInput),
+                new ActionRowBuilder().addComponents(bdayInput)
+            );
+            return await interaction.showModal(modal);
         }
     }
 
+    // ------------------------------------------
+    // 2. XỬ LÝ STRING SELECT MENUS (DÀNH CHO ADMIN)
+    // ------------------------------------------
     if (interaction.isStringSelectMenu()) {
         const { customId, values } = interaction;
         const targetId = values[0];
 
         if (customId === "select_edit_profile") {
-            return await openProfileModal(interaction, targetId, true);
+            return await openEditProfileModal(interaction, targetId);
         }
         
         if (customId === "select_edit_photos") {
@@ -703,46 +747,25 @@ client.on("interactionCreate", async interaction => {
                 }
             }
 
-            // Lưu tạm thông tin chữ chờ upload ảnh
-            tempTextData.set(targetId, { name, slogan, location, hobbies, day, month, year });
+            const imageUrls = tempImages.get(targetId) || [];
+            if (imageUrls.length === 0) return interaction.editReply({ content: "❌ Lỗi: Không tìm thấy tệp ảnh tạm thời của hồ sơ." });
 
-            // Hướng dẫn người dùng tải lên ảnh thông qua message collector
-            await interaction.editReply({ 
-                content: `📝 Đã ghi nhận thông tin chữ của <@${targetId}>.\n📸 Vui lòng **kéo thả hoặc tải lên từ 1 đến 4 ảnh** vào kênh này trong vòng 60 giây để hoàn thiện bộ sưu tập ảnh hồ sơ!` 
-            });
+            const data = loadData();
+            
+            // Khởi tạo Object cấu trúc có messageId để định danh sửa tin nhắn về sau
+            data[targetId] = { 
+                name, slogan, location, hobbies, 
+                images: imageUrls, 
+                day, month, year, 
+                messageId: null, 
+                hidden: false 
+            };
+            saveData(data);
+            tempImages.delete(targetId);
 
-            // Bắt đầu lắng nghe tin nhắn chứa tệp đính kèm từ người gõ lệnh
-            const filter = m => m.author.id === interaction.user.id && m.attachments.size > 0;
-            const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 60000 });
-
-            collector.on("collect", async m => {
-                const imageUrls = m.attachments.map(att => att.url);
-                const textData = tempTextData.get(targetId);
-
-                if (textData) {
-                    const data = loadData();
-                    data[targetId] = { 
-                        ...textData,
-                        images: imageUrls, 
-                        messageId: data[targetId]?.messageId || null, 
-                        hidden: false 
-                    };
-                    saveData(data);
-                    tempTextData.delete(targetId);
-
-                    await m.delete().catch(() => null); // Dọn dẹp ảnh rác trong kênh chat
-                    await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆");
-                    await interaction.followUp({ content: `✅ Đã lưu cấu hình và đưa hồ sơ cá nhân của <@${targetId}> lên sảnh danh vọng!`, flags: ['Ephemeral'] });
-                }
-            });
-
-            collector.on("end", (collected, reason) => {
-                if (reason === "time" && tempTextData.has(targetId)) {
-                    tempTextData.delete(targetId);
-                    interaction.followUp({ content: "⏳ Thao tác tạo hồ sơ đã bị hủy do hết thời gian chờ 60 giây để tải ảnh.", flags: ['Ephemeral'] });
-                }
-            });
-            return;
+            // Gửi hoặc cập nhật thẻ Profile lên Sảnh Danh Vọng
+            await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆");
+            return await interaction.editReply({ content: `✅ Đã lưu cấu hình và đưa hồ sơ cá nhân của <@${targetId}> lên sảnh danh vọng!` });
         }
 
         // --- SUBMIT MODAL SỬA PROFILE ---
@@ -902,3 +925,15 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(process.env.TOKEN);
+```
+eof
+
+### 📦 Các bước khởi chạy sau khi phục hồi:
+1. Bạn hãy mở file `index.js` trong thư mục code của bạn ở máy tính, xóa sạch nội dung cũ và dán đè toàn bộ code vừa khôi phục ở trên vào.
+2. Thao tác tiếp trên Terminal để commit và đẩy code sạch này lên GitHub:
+   ```bash
+   git add .
+   git commit -m "feat: restore robust slash profile cards and role-based hider"
+   git push origin main
+   ```
+3. Sau khi Railway tự động cập nhật lại bản build mới, bot của bạn sẽ hoạt động hoàn toàn chính xác theo đúng ý bạn!
