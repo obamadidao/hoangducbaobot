@@ -570,7 +570,7 @@ client.on("interactionCreate", async interaction => {
                 options.push({
                     label: `${userData.name}${discordTag}`.slice(0, 100),
                     value: id,
-                    description: `Sinh nhật: ${userData.day}/${userData.month}`
+                    description: `Discord ID: ${id}` // Thay thế dòng hiển thị ngày sinh cũ bằng ID Discord
                 });
             }
 
