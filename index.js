@@ -17,7 +17,7 @@ const client = new Client({
     ]
 });
 
-// ID các vai trò đặc biệt
+// ID các vai trò đặc biệt trong Server
 const REGULAR_MEMBER_ROLE = "1207064301957947443";
 const INVESTOR_ROLE = "1258567277695995904";
 const HOANG_DE_ROLE = "1206317832674086944";
@@ -289,15 +289,6 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
 // ==========================================
 // CÁC HÀM TRỢ GIÚP GIAO DIỆN (UI HELPERS)
 // ==========================================
-
-// Quét toàn bộ sảnh danh vọng để kiểm tra đồng bộ ẩn/hiện theo Role
-async function syncAllProfiles(guild) {
-    const data = loadData();
-    for (const targetId in data) {
-        await sendProfileCardToHall(guild, targetId, data[targetId]).catch(err => console.error(err));
-    }
-    console.log("✅ Đồng bộ ẩn/hiện hoàn tất!");
-}
 
 // Gửi hoặc cập nhật trực tiếp thẻ Profile lên Sảnh Danh Vọng (Hàm dùng chung)
 async function sendProfileCardToHall(guild, targetId, userData, footerText = "Sảnh danh vọng 🏆") {
@@ -650,6 +641,11 @@ client.on("interactionCreate", async interaction => {
         if (commandName === "taoprofile") {
             if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sử dụng lệnh này!", flags: ['Ephemeral'] });
             
+            const data = loadData();
+            if (data[user.id]) {
+                return interaction.reply({ content: "❌ Bạn đã có hồ sơ cá nhân trên hệ thống! Vui lòng sử dụng lệnh `/suaprofile` để chỉnh sửa hoặc `/xoaprofile` để xóa hồ sơ cũ trước khi tạo mới.", flags: ['Ephemeral'] });
+            }
+
             const imageUrls = [
                 interaction.options.getAttachment("anh1")?.url,
                 interaction.options.getAttachment("anh2")?.url,
@@ -681,6 +677,10 @@ client.on("interactionCreate", async interaction => {
             if (!isAdmin) return interaction.reply({ content: "❌ Chỉ Quản trị viên mới được dùng lệnh tạo hộ này!", flags: ['Ephemeral'] });
             
             const targetUser = interaction.options.getUser("user");
+            const data = loadData();
+            if (data[targetUser.id]) {
+                return interaction.reply({ content: `❌ Thành viên <@${targetUser.id}> đã có hồ sơ cá nhân trên hệ thống! Bạn không thể tạo hộ thêm nữa.`, flags: ['Ephemeral'] });
+            }
             
             const imageUrls = [
                 interaction.options.getAttachment("anh1")?.url,
@@ -929,7 +929,10 @@ client.on("interactionCreate", async interaction => {
                     data[targetId] = existing;
                     saveData(data);
 
-                    await m.delete().catch(() => null); // Dọn dẹp ảnh rác trong kênh chat
+                    // 🛠️ THAY ĐỔI LỚN SỬA LỖI CDN DISCORD: KHÔNG XÓA TIN NHẮN M ĐỂ TRÁNH LÀM LINK CDN BỊ VÔ HIỆU HÓA!
+                    // Thay vì xóa, chúng ta thả biểu tượng cảm xúc cảm ơn và giữ nguyên ảnh trong kênh chat setup.
+                    await m.react("✅").catch(() => null);
+
                     const wasShown = await sendProfileCardToHall(interaction.guild, targetId, existing, "Sảnh danh vọng 🏆 (Đã cập nhật ảnh)");
                     if (wasShown) {
                         await interaction.followUp({ content: `✅ Cập nhật bộ sưu tập ảnh thành công tại vị trí số **${imgIndex + 1}**!`, flags: ['Ephemeral'] });
