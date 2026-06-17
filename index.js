@@ -925,15 +925,3 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(process.env.TOKEN);
-```
-eof
-
-### 📦 Các bước khởi chạy sau khi phục hồi:
-1. Bạn hãy mở file `index.js` trong thư mục code của bạn ở máy tính, xóa sạch nội dung cũ và dán đè toàn bộ code vừa khôi phục ở trên vào.
-2. Thao tác tiếp trên Terminal để commit và đẩy code sạch này lên GitHub:
-   ```bash
-   git add .
-   git commit -m "feat: restore robust slash profile cards and role-based hider"
-   git push origin main
-   ```
-3. Sau khi Railway tự động cập nhật lại bản build mới, bot của bạn sẽ hoạt động hoàn toàn chính xác theo đúng ý bạn!
