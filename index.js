@@ -88,6 +88,9 @@ client.once("ready", async () => {
             .setName('birthdays')
             .setDescription('Xem danh sách sinh nhật của tất cả thành viên (Chỉ dùng ở kênh Setup)'),
         new SlashCommandBuilder()
+            .setName('birthday')
+            .setDescription('Tra cứu sinh nhật của một thành viên cụ thể (Có thể dùng ở mọi kênh)'),
+        new SlashCommandBuilder()
             .setName('taoprofile')
             .setDescription('Tạo hồ sơ cá nhân và điền ngày sinh nhật')
             .addAttachmentOption(option => option.setName('anh1').setDescription('Ảnh profile 1').setRequired(true))
@@ -289,6 +292,15 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
 // ==========================================
 // CÁC HÀM TRỢ GIÚP GIAO DIỆN (UI HELPERS)
 // ==========================================
+
+// Quét toàn bộ sảnh danh vọng để kiểm tra đồng bộ ẩn/hiện theo Role
+async function syncAllProfiles(guild) {
+    const data = loadData();
+    for (const targetId in data) {
+        await sendProfileCardToHall(guild, targetId, data[targetId]).catch(err => console.error(err));
+    }
+    console.log("✅ Đồng bộ ẩn/hiện hoàn tất!");
+}
 
 // Gửi hoặc cập nhật trực tiếp thẻ Profile lên Sảnh Danh Vọng (Hàm dùng chung)
 async function sendProfileCardToHall(guild, targetId, userData, footerText = "Sảnh danh vọng 🏆") {
@@ -518,7 +530,7 @@ async function openPhotoEditorDashboard(interaction, targetId) {
 }
 
 // ==========================================
-// KHỐI SỰ KIỆN TƯƠNG TÁC CHÍNH (CONSOLIDATED)
+// KHỐI SỰ KIỆY TƯƠNG TÁC CHÍNH (CONSOLIDATED)
 // ==========================================
 client.on("interactionCreate", async interaction => {
     
@@ -528,13 +540,45 @@ client.on("interactionCreate", async interaction => {
     if (interaction.isChatInputCommand()) {
         const { commandName, channelId, guild, member, user } = interaction;
 
-        // Chặn kênh setup ngoại trừ các lệnh sticky
+        // Chặn kênh setup ngoại trừ các lệnh sticky và lệnh tra cứu đơn lẻ /birthday
         if (["birthdays", "taoprofile", "taohoprofile", "suaprofile", "suaanh", "xoaprofile"].includes(commandName) && channelId !== process.env.SETUP_CHANNEL_ID) {
             return interaction.reply({ content: `❌ Lệnh này chỉ dùng được ở kênh <#${process.env.SETUP_CHANNEL_ID}>!`, flags: ['Ephemeral'] });
         }
 
         // Quyền Hoàng Đế hoặc ManageMessages được coi là Admin
         const isAdmin = member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.has(HOANG_DE_ROLE);
+
+        // --- LỆNH /BIRTHDAY (TRA CỨU ĐƠN LẺ KHÔNG GIỚI HẠN KÊNH) ---
+        if (commandName === "birthday") {
+            const data = loadData();
+            // Lọc ra danh sách user đã lưu sinh nhật
+            const userIds = Object.keys(data).filter(id => data[id].day && data[id].month);
+            if (userIds.length === 0) {
+                return interaction.reply({ content: "❌ Hiện tại chưa có thành viên nào cập nhật hồ sơ sinh nhật cả!", flags: ['Ephemeral'] });
+            }
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId("select_birthday_lookup")
+                .setPlaceholder("Chọn thành viên để xem ngày sinh nhật...");
+
+            const options = [];
+            for (const id of userIds) {
+                const userData = data[id];
+                const userObj = client.users.cache.get(id) || await client.users.fetch(id).catch(() => null);
+                const discordTag = userObj ? ` (@${userObj.username})` : "";
+                
+                options.push({
+                    label: `${userData.name}${discordTag}`.slice(0, 100),
+                    value: id,
+                    description: `Sinh nhật: ${userData.day}/${userData.month}`
+                });
+            }
+
+            selectMenu.addOptions(options.slice(0, 25)); // Dropdown tối đa 25 tùy chọn
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+            return await interaction.reply({ content: "🎂 **Chọn thành viên bạn muốn tra cứu ngày sinh nhật:**", components: [row] });
+        }
 
         // --- LỆNH /SUAPROFILE ---
         if (commandName === "suaprofile") {
@@ -711,11 +755,39 @@ client.on("interactionCreate", async interaction => {
     }
 
     // ------------------------------------------
-    // 2. XỬ LÝ STRING SELECT MENUS (DÀNH CHO ADMIN)
+    // 2. XỬ LÝ STRING SELECT MENUS (DÀNH CHO ADMIN & USER)
     // ------------------------------------------
     if (interaction.isStringSelectMenu()) {
         const { customId, values } = interaction;
         const targetId = values[0];
+
+        // --- XỬ LÝ MENU TRA CỨU SINH NHẬT ĐƠN LẺ (/BIRTHDAY) ---
+        if (customId === "select_birthday_lookup") {
+            const data = loadData();
+            const userData = data[targetId];
+
+            if (!userData) {
+                return interaction.reply({ content: "❌ Hồ sơ sinh nhật của thành viên này không tồn tại!", flags: ['Ephemeral'] });
+            }
+
+            const daysLeft = getDaysUntilBirthday(userData.day, userData.month);
+            const countdownText = daysLeft === 0 ? "🎂 Hôm nay luôn!" : `Còn **${daysLeft} ngày**`;
+
+            const userObj = client.users.cache.get(targetId) || await client.users.fetch(targetId).catch(() => null);
+
+            const lookupEmbed = new EmbedBuilder()
+                .setColor("#FFB6C1")
+                .setTitle("🎂 THÔNG TIN SINH NHẬT THÀNH VIÊN 🎂")
+                .setDescription(`👤 **${userData.name}** (<@${targetId}>)\n🎂 ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}\n⏳ ${countdownText}`)
+                .setTimestamp();
+
+            if (userObj) {
+                lookupEmbed.setThumbnail(userObj.displayAvatarURL({ dynamic: true }));
+            }
+
+            // Cập nhật tin nhắn để xóa dropdown menu đi và thay thế bằng Embed thông tin sinh nhật gọn gàng
+            return await interaction.update({ content: null, embeds: [lookupEmbed], components: [] });
+        }
 
         if (customId === "select_edit_profile") {
             return await openEditProfileModal(interaction, targetId);
