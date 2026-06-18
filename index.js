@@ -8,6 +8,7 @@ const {
 const cron = require("node-cron");
 const fs = require("fs");
 
+// Import lệnh ẩn danh độc lập
 const andanhCommand = require("./andanh.js");
 
 const client = new Client({
@@ -19,10 +20,12 @@ const client = new Client({
     ]
 });
 
+// ID các vai trò đặc biệt trong Server
 const REGULAR_MEMBER_ROLE = "1207064301957947443";
 const INVESTOR_ROLE = "1258567277695995904";
 const HOANG_DE_ROLE = "1206317832674086944";
 
+// TỰ ĐỘNG PHÁT HIỆN RAILWAY VOLUME KHÔNG LO MẤT DATA KHI DEPLOY
 const FILE = fs.existsSync("/data") ? "/data/birthdays.json" : "./birthdays.json";
 const STICKY_FILE = fs.existsSync("/data") ? "/data/sticky.json" : "./sticky.json";
 const EVENTS_FILE = fs.existsSync("/data") ? "/data/events.json" : "./events.json";
@@ -53,6 +56,7 @@ const saveStickyData = (data) => writeJson(STICKY_FILE, data);
 const loadEventsData = () => readJson(EVENTS_FILE);
 const saveEventsData = (data) => writeJson(EVENTS_FILE, data);
 
+// Kiểm tra quyền tự thao tác cấu hình cá nhân
 function isSelfAllowed(member) {
     if (member.roles.cache.has(HOANG_DE_ROLE)) return true;
     const roleEnv = process.env.ROLE_IDS || "";
@@ -71,9 +75,6 @@ function getDaysUntilBirthday(day, month) {
     return Math.ceil((bdayTest - now) / (1000 * 60 * 60 * 24));
 }
 
-// ==========================================
-// HÀM TỰ ĐỘNG LÀM MỚI CHỮ KÝ ẢNH DISCORD (CDN REFRESH)
-// ==========================================
 async function refreshDiscordUrls(urls) {
     if (!urls || urls.length === 0) return {};
     
@@ -548,556 +549,601 @@ async function openPhotoEditorDashboard(interaction, targetId) {
 }
 
 client.on("interactionCreate", async interaction => {
-    if (interaction.isChatInputCommand()) {
-        const { commandName, channelId, guild, member, user } = interaction;
+    try {
+        if (interaction.isChatInputCommand()) {
+            const { commandName, channelId, guild, member, user } = interaction;
 
-        if (commandName === "andanh") {
-            return await andanhCommand.execute(interaction);
-        }
+            if (commandName === "andanh") {
+                return await andanhCommand.execute(interaction);
+            }
 
-        const restrictedCommands = [
-            "birthdays", "taoprofile", "taohoprofile", "suaprofile", "suaanh", "xoaprofile",
-            "taosukien", "danhsachsukien", "suasukien", "xoasukien"
-        ];
-        if (restrictedCommands.includes(commandName) && channelId !== process.env.SETUP_CHANNEL_ID) {
-            return interaction.reply({ content: `❌ Lệnh này chỉ dùng được ở kênh <#${process.env.SETUP_CHANNEL_ID}>!`, flags: ['Ephemeral'] });
-        }
+            const restrictedCommands = [
+                "birthdays", "taoprofile", "taohoprofile", "suaprofile", "suaanh", "xoaprofile",
+                "taosukien", "danhsachsukien", "suasukien", "xoasukien"
+            ];
+            if (restrictedCommands.includes(commandName) && channelId !== process.env.SETUP_CHANNEL_ID) {
+                return interaction.reply({ content: `❌ Lệnh này chỉ dùng được ở kênh <#${process.env.SETUP_CHANNEL_ID}>!`, flags: ['Ephemeral'] });
+            }
 
-        const isAdmin = member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.has(HOANG_DE_ROLE);
+            const isAdmin = member.permissions.has(PermissionFlagsBits.ManageMessages) || member.roles.cache.has(HOANG_DE_ROLE);
 
-        if (commandName === "suaprofile") {
-            if (isAdmin) {
-                const selectMenu = await createRegisteredUsersSelectMenu("select_edit_profile", "Chọn thành viên cần sửa hồ sơ...");
-                if (!selectMenu) return interaction.reply({ content: "❌ Chưa có thành viên nào đăng ký hồ sơ cả!", flags: ['Ephemeral'] });
-                return await interaction.reply({ content: "⚙️ **Chọn thành viên bạn muốn chỉnh sửa hồ sơ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
-            } else {
-                if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền chỉnh sửa hồ sơ!", flags: ['Ephemeral'] });
+            if (commandName === "suaprofile") {
+                if (isAdmin) {
+                    const selectMenu = await createRegisteredUsersSelectMenu("select_edit_profile", "Chọn thành viên cần sửa hồ sơ...");
+                    if (!selectMenu) return interaction.reply({ content: "❌ Chưa có thành viên nào đăng ký hồ sơ cả!", flags: ['Ephemeral'] });
+                    return await interaction.reply({ content: "⚙️ **Chọn thành viên bạn muốn chỉnh sửa hồ sơ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
+                } else {
+                    if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền chỉnh sửa hồ sơ!", flags: ['Ephemeral'] });
+                    const data = loadData();
+                    if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ! Hãy tạo bằng lệnh `/taoprofile`.", flags: ['Ephemeral'] });
+                    return await openEditProfileModal(interaction, user.id);
+                }
+            }
+
+            if (commandName === "suaanh") {
+                if (isAdmin) {
+                    const selectMenu = await createRegisteredUsersSelectMenu("select_edit_photos", "Chọn thành viên để chỉnh sửa ảnh...");
+                    if (!selectMenu) return interaction.reply({ content: "❌ Chưa có ai khởi tạo hồ sơ để chỉnh sửa ảnh!", flags: ['Ephemeral'] });
+                    return await interaction.reply({ content: "📸 **Chọn thành viên bạn muốn thay đổi ảnh hồ sơ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
+                } else {
+                    if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sửa ảnh hồ sơ cá nhân!", flags: ['Ephemeral'] });
+                    const data = loadData();
+                    if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ cá nhân! Hãy dùng `/taoprofile` trước.", flags: ['Ephemeral'] });
+                    return await openPhotoEditorDashboard(interaction, user.id);
+                }
+            }
+
+            if (commandName === "xoaprofile") {
+                if (isAdmin) {
+                    const selectMenu = await createRegisteredUsersSelectMenu("select_delete_profile", "Chọn thành viên cần xóa hồ sơ vĩnh viễn...");
+                    if (!selectMenu) return interaction.reply({ content: "❌ Không thể xóa vì danh sách hiện đang trống!", flags: ['Ephemeral'] });
+                    return await interaction.reply({ content: "🚨 **Chọn thành viên bạn muốn xóa hồ sơ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
+                } else {
+                    if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền xóa hồ sơ cá nhân!", flags: ['Ephemeral'] });
+                    const data = loadData();
+                    if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ cá nhân để xóa.", flags: ['Ephemeral'] });
+
+                    const confirmRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`confirm_delete_${user.id}`).setLabel("Xác Nhận Xóa").setStyle(ButtonStyle.Danger),
+                        new ButtonBuilder().setCustomId("cancel_delete").setLabel("Hủy Bỏ").setStyle(ButtonStyle.Secondary)
+                    );
+                    return interaction.reply({ content: "⚠️ Bạn có chắc chắn muốn xóa hồ sơ cá nhân của mình khỏi Sảnh Danh Vọng không?", components: [confirmRow], flags: ['Ephemeral'] });
+                }
+            }
+
+            if (commandName === "sticky") {
+                const modal = new ModalBuilder().setCustomId("sticky_modal").setTitle("Cấu hình Tin nhắn Ghim Kênh");
+                modal.addComponents(new ActionRowBuilder().addComponents(
+                    new TextInputBuilder().setCustomId("modal_sticky_content").setLabel("Nhập nội dung ghim (Xuống dòng tự do)").setStyle(TextInputStyle.Paragraph).setRequired(true)
+                ));
+                return await interaction.showModal(modal);
+            }
+
+            if (commandName === "unsticky") {
+                await interaction.deferReply({ flags: ['Ephemeral'] });
+                const stickyData = loadStickyData();
+                if (!stickyData[channelId]) return await interaction.editReply({ content: "❌ Kênh này hiện tại không có tin nhắn dính nào cả." });
+
+                if (stickyData[channelId].lastMessageId) {
+                    const oldMsg = await interaction.channel.messages.fetch(stickyData[channelId].lastMessageId).catch(() => null);
+                    if (oldMsg) await oldMsg.delete().catch(() => null);
+                }
+                delete stickyData[channelId];
+                saveStickyData(stickyData);
+                return await interaction.editReply({ content: "✅ Đã gỡ bỏ tính năng tin nhắn dính thành công tại kênh này!" });
+            }
+
+            if (commandName === "birthdays") {
+                await interaction.deferReply();
                 const data = loadData();
-                if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ! Hãy tạo bằng lệnh `/taoprofile`.", flags: ['Ephemeral'] });
-                return await openEditProfileModal(interaction, user.id);
-            }
-        }
-
-        if (commandName === "suaanh") {
-            if (isAdmin) {
-                const selectMenu = await createRegisteredUsersSelectMenu("select_edit_photos", "Chọn thành viên để chỉnh sửa ảnh...");
-                if (!selectMenu) return interaction.reply({ content: "❌ Chưa có ai khởi tạo hồ sơ để chỉnh sửa ảnh!", flags: ['Ephemeral'] });
-                return await interaction.reply({ content: "📸 **Chọn thành viên bạn muốn thay đổi ảnh hồ sơ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
-            } else {
-                if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sửa ảnh hồ sơ cá nhân!", flags: ['Ephemeral'] });
-                const data = loadData();
-                if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ cá nhân! Hãy dùng `/taoprofile` trước.", flags: ['Ephemeral'] });
-                return await openPhotoEditorDashboard(interaction, user.id);
-            }
-        }
-
-        if (commandName === "xoaprofile") {
-            if (isAdmin) {
-                const selectMenu = await createRegisteredUsersSelectMenu("select_delete_profile", "Chọn thành viên cần xóa hồ sơ vĩnh viễn...");
-                if (!selectMenu) return interaction.reply({ content: "❌ Không thể xóa vì danh sách hiện đang trống!", flags: ['Ephemeral'] });
-                return await interaction.reply({ content: "🚨 **Chọn thành viên bạn muốn xóa hồ sơ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
-            } else {
-                if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền xóa hồ sơ cá nhân!", flags: ['Ephemeral'] });
-                const data = loadData();
-                if (!data[user.id]) return interaction.reply({ content: "❌ Bạn chưa có hồ sơ cá nhân để xóa.", flags: ['Ephemeral'] });
-
-                const confirmRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`confirm_delete_${user.id}`).setLabel("Xác Nhận Xóa").setStyle(ButtonStyle.Danger),
-                    new ButtonBuilder().setCustomId("cancel_delete").setLabel("Hủy Bỏ").setStyle(ButtonStyle.Secondary)
-                );
-                return interaction.reply({ content: "⚠️ Bạn có chắc chắn muốn xóa hồ sơ cá nhân của mình khỏi Sảnh Danh Vọng không?", components: [confirmRow], flags: ['Ephemeral'] });
-            }
-        }
-
-        if (commandName === "sticky") {
-            const modal = new ModalBuilder().setCustomId("sticky_modal").setTitle("Cấu hình Tin nhắn Ghim Kênh");
-            modal.addComponents(new ActionRowBuilder().addComponents(
-                new TextInputBuilder().setCustomId("modal_sticky_content").setLabel("Nhập nội dung ghim (Xuống dòng tự do)").setStyle(TextInputStyle.Paragraph).setRequired(true)
-            ));
-            return await interaction.showModal(modal);
-        }
-
-        if (commandName === "unsticky") {
-            await interaction.deferReply({ flags: ['Ephemeral'] });
-            const stickyData = loadStickyData();
-            if (!stickyData[channelId]) return await interaction.editReply({ content: "❌ Kênh này hiện tại không có tin nhắn dính nào cả." });
-
-            if (stickyData[channelId].lastMessageId) {
-                const oldMsg = await interaction.channel.messages.fetch(stickyData[channelId].lastMessageId).catch(() => null);
-                if (oldMsg) await oldMsg.delete().catch(() => null);
-            }
-            delete stickyData[channelId];
-            saveStickyData(stickyData);
-            return await interaction.editReply({ content: "✅ Đã gỡ bỏ tính năng tin nhắn dính thành công tại kênh này!" });
-        }
-
-        if (commandName === "birthdays") {
-            await interaction.deferReply();
-            const data = loadData();
-            let listText = ""; let index = 1;
-            for (const userId in data) {
-                const userData = data[userId];
-                if (userData.day && userData.month) {
-                    const daysLeft = getDaysUntilBirthday(userData.day, userData.month);
-                    listText += `#${index} 👤 **${userData.name}** - 🎂 ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""} (Còn **${daysLeft} ngày**)\n\n`;
-                    index++;
-                }
-            }
-            const listEmbed = new EmbedBuilder().setColor("#FFB6C1").setTitle("🎂 DANH SÁCH SINH NHẬT THÀNH VIÊN 🎂").setDescription(listText || "Chưa có thành viên nào cập nhật hồ sơ sinh nhật.").setTimestamp();
-            return await interaction.editReply({ embeds: [listEmbed] });
-        }
-
-        if (commandName === "birthday") {
-            const data = loadData();
-            const userIds = Object.keys(data);
-            if (userIds.length === 0) return interaction.reply({ content: "❌ Chưa có hồ sơ sinh nhật nào!", flags: ['Ephemeral'] });
-
-            const selectMenu = new StringSelectMenuBuilder().setCustomId("select_birthday_lookup").setPlaceholder("Chọn thành viên để xem ngày sinh nhật...");
-            for (const id of userIds) {
-                const userData = data[id];
-                const userObj = client.users.cache.get(id) || await client.users.fetch(id).catch(() => null);
-                selectMenu.addOptions({
-                    label: `${userData.name}${userObj ? ` (@${userObj.username})` : ""}`.slice(0, 100),
-                    value: id,
-                    description: `Discord ID: ${id}`
-                });
-            }
-            return await interaction.reply({ content: "🎂 **Chọn thành viên bạn muốn xem thông tin sinh nhật:**", components: [new ActionRowBuilder().addComponents(selectMenu)] });
-        }
-
-        if (commandName === "taoprofile") {
-            if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sử dụng lệnh này!", flags: ['Ephemeral'] });
-            
-            const data = loadData();
-            if (data[user.id]) {
-                return interaction.reply({ content: "❌ Bạn đã có hồ sơ! Dùng `/suaprofile` để sửa hoặc `/xoaprofile` để xóa.", flags: ['Ephemeral'] });
-            }
-
-            const imageUrls = [1, 2, 3, 4].map(i => interaction.options.getAttachment(`anh${i}`)?.url).filter(Boolean);
-            tempImages.set(user.id, imageUrls);
-
-            const modal = new ModalBuilder().setCustomId(`profile_modal_${user.id}`).setTitle("Thông Tin Hồ Sơ Cá Nhân");
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_slogan").setLabel("Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06)").setStyle(TextInputStyle.Short).setRequired(false))
-            );
-            return await interaction.showModal(modal);
-        }
-
-        if (commandName === "taohoprofile") {
-            if (!isAdmin) return interaction.reply({ content: "❌ Chỉ QTV mới được dùng lệnh tạo hộ này!", flags: ['Ephemeral'] });
-            
-            const targetUser = interaction.options.getUser("user");
-            const data = loadData();
-            if (data[targetUser.id]) {
-                return interaction.reply({ content: `❌ Thành viên <@${targetUser.id}> đã có hồ sơ cá nhân trên hệ thống!`, flags: ['Ephemeral'] });
-            }
-            
-            const imageUrls = [1, 2, 3, 4].map(i => interaction.options.getAttachment(`anh${i}`)?.url).filter(Boolean);
-            tempImages.set(targetUser.id, imageUrls);
-
-            const modal = new ModalBuilder().setCustomId(`profile_modal_${targetUser.id}`).setTitle(`Tạo hộ hồ sơ: ${targetUser.username}`);
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_slogan").setLabel("Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06)").setStyle(TextInputStyle.Short).setRequired(false))
-            );
-            return await interaction.showModal(modal);
-        }
-
-        if (commandName === "taosukien") {
-            const role1 = interaction.options.getRole("role1");
-            const role2 = interaction.options.getRole("role2");
-            const rolesSelected = [role1, role2].filter(Boolean).map(r => r.id);
-
-            tempEventRoles.set(user.id, rolesSelected);
-
-            const modal = new ModalBuilder().setCustomId(`create_event_modal`).setTitle("Tạo Sự Kiện Nhắc Nhở");
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_name").setLabel("Tên sự kiện").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_date").setLabel("Ngày diễn ra (Vd: 14/02)").setStyle(TextInputStyle.Short).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_msg").setLabel("Nội dung lời nhắn thông báo").setStyle(TextInputStyle.Paragraph).setRequired(true))
-            );
-            return await interaction.showModal(modal);
-        }
-
-        if (commandName === "suasukien") {
-            const eventsData = loadEventsData();
-            const editableEvents = Object.keys(eventsData).filter(id => isAdmin || eventsData[id].creatorId === user.id);
-
-            if (editableEvents.length === 0) return interaction.reply({ content: "❌ Bạn không có sự kiện nào để sửa!", flags: ['Ephemeral'] });
-
-            const selectMenu = new StringSelectMenuBuilder().setCustomId("select_event_edit").setPlaceholder("Chọn sự kiện bạn muốn chỉnh sửa...");
-            editableEvents.forEach(id => {
-                selectMenu.addOptions({ label: eventsData[id].name.slice(0, 100), value: id, description: `Ngày: ${eventsData[id].day}/${eventsData[id].month}` });
-            });
-            return await interaction.reply({ content: "⚙️ **Chọn sự kiện bạn muốn sửa thông tin:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
-        }
-
-        if (commandName === "xoasukien") {
-            const eventsData = loadEventsData();
-            const deletableEvents = Object.keys(eventsData).filter(id => isAdmin || eventsData[id].creatorId === user.id);
-
-            if (deletableEvents.length === 0) return interaction.reply({ content: "❌ Bạn không sở hữu sự kiện nào để tiến hành xóa!", flags: ['Ephemeral'] });
-
-            const selectMenu = new StringSelectMenuBuilder().setCustomId("select_event_delete").setPlaceholder("Chọn sự kiện bạn muốn xóa bỏ...");
-            deletableEvents.forEach(id => {
-                selectMenu.addOptions({ label: eventsData[id].name.slice(0, 100), value: id, description: `Ngày: ${eventsData[id].day}/${eventsData[id].month}` });
-            });
-            return await interaction.reply({ content: "🚨 **Chọn sự kiện bạn muốn xóa vĩnh viễn khỏi server:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
-        }
-
-        if (commandName === "danhsachsukien") {
-            await interaction.deferReply();
-            const eventsData = loadEventsData();
-            let listText = ""; let index = 1;
-            for (const id in eventsData) {
-                const event = eventsData[id];
-                const daysLeft = getDaysUntilBirthday(event.day, event.month);
-                listText += `#${index} 🔔 **${event.name}** - 📆 Ngày: ${event.day}/${event.month} (Còn **${daysLeft} ngày**) - ✍️ Người tạo: <@${event.creatorId}>\n\n`;
-                index++;
-            }
-            const listEmbed = new EmbedBuilder().setColor("#F1C40F").setTitle("✨ DANH SÁCH SỰ KIỆN TRONG SERVER ✨").setDescription(listText || "Chưa có sự kiện nào được tạo lập nhắc nhở.").setTimestamp();
-            return await interaction.editReply({ embeds: [listEmbed] });
-        }
-
-        if (commandName === "sukien") {
-            const eventsData = loadEventsData();
-            const eventIds = Object.keys(eventsData);
-            if (eventIds.length === 0) return interaction.reply({ content: "❌ Chưa có sự kiện nhắc nhở nào được lưu!", flags: ['Ephemeral'] });
-
-            const selectMenu = new StringSelectMenuBuilder().setCustomId("select_event_lookup").setPlaceholder("Chọn sự kiện để tra cứu...");
-            eventIds.forEach(id => {
-                selectMenu.addOptions({ label: eventsData[id].name.slice(0, 100), value: id, description: `Người tạo: @${eventsData[id].creatorName || "Ẩn danh"}` });
-            });
-            return await interaction.reply({ content: "🔔 **Chọn sự kiện bạn muốn tra cứu thông tin:**", components: [new ActionRowBuilder().addComponents(selectMenu)] });
-        }
-    }
-
-    if (interaction.isStringSelectMenu()) {
-        const { customId, values, guild } = interaction;
-        const targetId = values[0];
-
-        if (customId === "select_edit_profile") return await openEditProfileModal(interaction, targetId);
-        if (customId === "select_edit_photos") return await openPhotoEditorDashboard(interaction, targetId);
-
-        if (customId === "select_delete_profile") {
-            const data = loadData();
-            if (!data[targetId]) return interaction.reply({ content: "❌ Lỗi: Hồ sơ không tồn tại.", flags: ['Ephemeral'] });
-            const targetName = data[targetId].name || targetId;
-            await deleteProfileCard(guild, targetId);
-            return await interaction.update({ content: `✅ Đã xóa thành công hồ sơ cá nhân của **${targetName}** (<@${targetId}>)!`, components: [] });
-        }
-
-        if (customId === "select_birthday_lookup") {
-            await interaction.deferReply();
-            const data = loadData();
-            const userData = data[targetId];
-            if (!userData) return await interaction.editReply({ content: "❌ Không tìm thấy thông tin hồ sơ của thành viên này." });
-
-            const userObj = client.users.cache.get(targetId) || await client.users.fetch(targetId).catch(() => null);
-            const daysLeft = getDaysUntilBirthday(userData.day, userData.month);
-            const countdownText = daysLeft === 0 ? "🎂 Hôm nay luôn! Chúc mừng sinh nhật nhé!" : `Còn **${daysLeft} ngày**`;
-
-            const bdayEmbed = new EmbedBuilder()
-                .setColor("#FFB6C1")
-                .setTitle("🎂 THÔNG TIN SINH NHẬT THÀNH VIÊN 🎂")
-                .setDescription(`👤 **${userData.name}** (${userObj ? `@${userObj.username}` : "Thành viên"})\n🎂 Ngày sinh: ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}\n⏳ ${countdownText}`)
-                .setThumbnail(userObj ? userObj.displayAvatarURL({ dynamic: true }) : null)
-                .setTimestamp();
-
-            await interaction.editReply({ content: null, embeds: [bdayEmbed], components: [] });
-        }
-
-        if (customId === "select_event_edit") {
-            const eventsData = loadEventsData();
-            const event = eventsData[targetId];
-            if (!event) return interaction.reply({ content: "❌ Sự kiện không tồn tại!", flags: ['Ephemeral'] });
-
-            const modal = new ModalBuilder().setCustomId(`edit_event_modal_${targetId}`).setTitle("Chỉnh Sửa Sự Kiện");
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_name").setLabel("Tên sự kiện").setStyle(TextInputStyle.Short).setValue(event.name || "").setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_date").setLabel("Ngày diễn ra (Vd: 14/02)").setStyle(TextInputStyle.Short).setValue(`${event.day}/${event.month}`).setRequired(true)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_msg").setLabel("Nội dung lời nhắn thông báo").setStyle(TextInputStyle.Paragraph).setValue(event.message || "").setRequired(true))
-            );
-            return await interaction.showModal(modal);
-        }
-
-        if (customId === "select_event_delete") {
-            await interaction.deferReply({ flags: ['Ephemeral'] });
-            const eventsData = loadEventsData();
-            if (!eventsData[targetId]) return await interaction.editReply({ content: "❌ Sự kiện không tồn tại!" });
-
-            const deletedName = eventsData[targetId].name;
-            delete eventsData[targetId];
-            saveEventsData(eventsData);
-            return await interaction.editReply({ content: `✅ Đã xóa bỏ thành công sự kiện nhắc nhở: **${deletedName}**!` });
-        }
-
-        if (customId === "select_event_lookup") {
-            await interaction.deferReply();
-            const eventsData = loadEventsData();
-            const event = eventsData[targetId];
-            if (!event) return await interaction.editReply({ content: "❌ Sự kiện không tồn tại." });
-
-            const daysLeft = getDaysUntilBirthday(event.day, event.month);
-            const rolesTagText = event.roles && event.roles.length > 0 ? event.roles.map(rId => `<@&${rId}>`).join(", ") : "Không có";
-
-            const eventEmbed = new EmbedBuilder()
-                .setColor("#00F0FF")
-                .setTitle(`🔔 THÔNG TIN SỰ KIỆN 🔔`)
-                .setDescription(`🔔 **Tên sự kiện:** ${event.name}\n📆 Ngày diễn ra: ${event.day}/${event.month}\n⏳ ${daysLeft === 0 ? "Hôm nay luôn!" : `Còn ${daysLeft} ngày`}\n✍️ Người tạo: <@${event.creatorId}>\n👥 Nhóm nhận tin: ${rolesTagText}`)
-                .addFields({ name: "💬 Lời nhắn đặc biệt:", value: event.message || "Không có lời nhắn đi kèm." })
-                .setTimestamp();
-
-            await interaction.editReply({ content: null, embeds: [eventEmbed], components: [] });
-        }
-    }
-
-    if (interaction.isModalSubmit()) {
-        const { customId, guild, fields, user } = interaction;
-
-        if (customId.startsWith("profile_modal_")) {
-            await interaction.deferReply({ flags: ['Ephemeral'] });
-            const targetId = customId.replace("profile_modal_", "");
-
-            const name = fields.getTextInputValue("modal_ten");
-            const slogan = fields.getTextInputValue("modal_slogan");
-            const location = fields.getTextInputValue("modal_noio");
-            const hobbies = fields.getTextInputValue("modal_sothich");
-            const bdayRaw = fields.getTextInputValue("modal_ngaysinh").trim();
-
-            let day = null, month = null, year = null;
-            if (bdayRaw) {
-                const parts = bdayRaw.split(/[-/.]/);
-                if (parts.length >= 2) { 
-                    day = parseInt(parts[0], 10); 
-                    month = parseInt(parts[1], 10); 
-                    if (parts.length >= 3) year = parseInt(parts[2], 10); 
-                }
-                if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
-                    return interaction.editReply({ content: "❌ Ngày sinh nhật không hợp lệ!" });
-                }
-            }
-
-            const imageUrls = tempImages.get(targetId) || [];
-            if (imageUrls.length === 0) return interaction.editReply({ content: "❌ Không tìm thấy tệp ảnh tạm thời của hồ sơ." });
-
-            const data = loadData();
-            data[targetId] = { name, slogan, location, hobbies, images: imageUrls, day, month, year, messageId: null, hidden: false };
-            saveData(data);
-            tempImages.delete(targetId);
-
-            const wasShown = await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆");
-            if (wasShown) {
-                return await interaction.editReply({ content: `✅ Đã lưu và hiển thị hồ sơ của <@${targetId}> lên Sảnh Danh Vọng!` });
-            } else {
-                return await interaction.editReply({ content: `⚠️ Đã lưu cấu hình thành công! Tuy nhiên hồ sơ này tạm ẩn do tài khoản <@${targetId}> chưa đủ vai trò kiểm duyệt.` });
-            }
-        }
-
-        if (customId.startsWith("edit_profile_modal_")) {
-            await interaction.deferReply({ flags: ['Ephemeral'] });
-            const targetId = customId.replace("edit_profile_modal_", "");
-            
-            const name = fields.getTextInputValue("modal_ten");
-            const slogan = fields.getTextInputValue("modal_slogan");
-            const location = fields.getTextInputValue("modal_noio");
-            const hobbies = fields.getTextInputValue("modal_sothich");
-            const bdayRaw = fields.getTextInputValue("modal_ngaysinh").trim();
-
-            let day = null, month = null, year = null;
-            if (bdayRaw) {
-                const parts = bdayRaw.split(/[-/.]/);
-                if (parts.length >= 2) {
-                    day = parseInt(parts[0], 10);
-                    month = parseInt(parts[1], 10);
-                    if (parts.length >= 3) year = parseInt(parts[2], 10);
-                }
-                if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
-                    return interaction.editReply({ content: "❌ Ngày sinh nhật không hợp lệ!" });
-                }
-            }
-
-            const data = loadData();
-            const existing = data[targetId] || {};
-            const imageUrls = existing.images || (existing.image ? [existing.image] : []) || [];
-
-            data[targetId] = { name, slogan, location, hobbies, images: imageUrls, day, month, year, messageId: existing.messageId || null, hidden: existing.hidden || false };
-            saveData(data);
-
-            const wasShown = await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆 (Đã cập nhật thông tin)");
-            if (wasShown) {
-                return await interaction.editReply({ content: `✅ Đã cập nhật thông tin tại Sảnh Danh Vọng thành công!` });
-            } else {
-                return await interaction.editReply({ content: `⚠️ Đã lưu thông tin! Tuy nhiên hồ sơ đang tạm ẩn do tài khoản chưa đủ vai trò kiểm duyệt.` });
-            }
-        }
-
-        if (customId === "create_event_modal") {
-            await interaction.deferReply({ flags: ['Ephemeral'] });
-            const sName = fields.getTextInputValue("modal_sukien_name");
-            const sDateRaw = fields.getTextInputValue("modal_sukien_date").trim();
-            const sMsg = fields.getTextInputValue("modal_sukien_msg");
-
-            let day = null, month = null;
-            if (sDateRaw) {
-                const parts = sDateRaw.split(/[-/.]/);
-                if (parts.length >= 2) {
-                    day = parseInt(parts[0], 10);
-                    month = parseInt(parts[1], 10);
-                }
-                if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
-                    return interaction.editReply({ content: "❌ Định dạng ngày tháng sự kiện không hợp lệ! Nhập: ngày/tháng (Vd: 14/02)" });
-                }
-            }
-
-            const rolesSelected = tempEventRoles.get(user.id) || [];
-            tempEventRoles.delete(user.id);
-
-            const eventsData = loadEventsData();
-            const eventId = `evt_${Date.now()}`;
-            eventsData[eventId] = { name: sName, day, month, message: sMsg, roles: rolesSelected, creatorId: user.id, creatorName: user.username };
-            saveEventsData(eventsData);
-
-            return await interaction.editReply({ content: `✅ Đã tạo sự kiện: **${sName}** (${day}/${month})!` });
-        }
-
-        if (customId.startsWith("edit_event_modal_")) {
-            await interaction.deferReply({ flags: ['Ephemeral'] });
-            const targetEventId = customId.replace("edit_event_modal_", "");
-            const sName = fields.getTextInputValue("modal_sukien_name");
-            const sDateRaw = fields.getTextInputValue("modal_sukien_date").trim();
-            const sMsg = fields.getTextInputValue("modal_sukien_msg");
-
-            let day = null, month = null;
-            if (sDateRaw) {
-                const parts = sDateRaw.split(/[-/.]/);
-                if (parts.length >= 2) {
-                    day = parseInt(parts[0], 10);
-                    month = parseInt(parts[1], 10);
-                }
-                if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
-                    return interaction.editReply({ content: "❌ Định dạng ngày sự kiện không hợp lệ!" });
-                }
-            }
-
-            const eventsData = loadEventsData();
-            const existingEvent = eventsData[targetEventId];
-            if (!existingEvent) return interaction.editReply({ content: "❌ Sự kiện không tồn tại." });
-
-            eventsData[targetEventId] = { ...existingEvent, name: sName, day, month, message: sMsg };
-            saveEventsData(eventsData);
-
-            return await interaction.editReply({ content: `✅ Đã sửa thành công sự kiện: **${sName}**!` });
-        }
-
-        if (customId === "sticky_modal") {
-            await interaction.deferReply({ flags: ['Ephemeral'] });
-            let text = fields.getTextInputValue("modal_sticky_content").replace(/\\n/g, '\n').replace(/\|/g, '\n');
-
-            const stickyData = loadStickyData();
-            if (stickyData[interaction.channel.id]?.lastMessageId) {
-                const oldMsg = await interaction.channel.messages.fetch(stickyData[interaction.channel.id].lastMessageId).catch(() => null);
-                if (oldMsg) await oldMsg.delete().catch(() => null);
-            }
-
-            const stickyEmbed = new EmbedBuilder().setColor("#F1C40F").setTitle("📌 Tin nhắn ghim:").setDescription(text).setTimestamp();
-            const newMsg = await interaction.channel.send({ embeds: [stickyEmbed] });
-
-            stickyData[interaction.channel.id] = { text, lastMessageId: newMsg.id };
-            saveStickyData(stickyData);
-
-            return await interaction.editReply({ content: "✅ Tạo tin nhắn ghim thành công!" });
-        }
-    }
-
-    if (interaction.isButton()) {
-        const { customId, user, guild } = interaction;
-
-        if (customId.startsWith("slide_")) {
-            const parts = customId.split("_");
-            const profileUserId = parts[1];
-            const targetIndex = parseInt(parts[2], 10);
-
-            const data = loadData();
-            const userData = data[profileUserId];
-            const imageUrls = userData ? (userData.images || (userData.image ? [userData.image] : []) || []) : [];
-            if (imageUrls.length === 0) return interaction.reply({ content: "❌ Không có dữ liệu ảnh!", flags: ['Ephemeral'] });
-
-            const total = imageUrls.length;
-            const newEmbed = EmbedBuilder.from(interaction.message.embeds[0]).setImage(imageUrls[targetIndex]);
-
-            const prevIndex = targetIndex === 0 ? total - 1 : targetIndex - 1;
-            const nextIndex = targetIndex === total - 1 ? 0 : targetIndex + 1;
-
-            const newRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`slide_${profileUserId}_${prevIndex}_prev`).setLabel('<<').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('dummy').setLabel(`${targetIndex + 1}/${total}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-                new ButtonBuilder().setCustomId(`slide_${profileUserId}_${newIndex}_next`).setLabel('>>').setStyle(ButtonStyle.Secondary)
-            );
-
-            return await interaction.update({ embeds: [newEmbed], components: [newRow] });
-        }
-
-        if (customId.startsWith("changephoto_")) {
-            const parts = customId.split("_");
-            const targetId = parts[1];
-            const imgIndex = parseInt(parts[2], 10);
-
-            await interaction.update({ content: `📸 **[ĐANG CHỜ ẢNH]** Tải lên **1 ảnh mới** vào kênh này trong 60 giây để ghi đè vào **Vị trí thứ ${imgIndex + 1}**...`, embeds: [], components: [] });
-
-            const filter = m => m.author.id === user.id && m.attachments.size > 0;
-            const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 60000 });
-
-            collector.on("collect", async m => {
-                const attachment = m.attachments.first();
-                const newUrl = attachment.url;
-
-                const data = loadData();
-                const existing = data[targetId];
-
-                if (existing) {
-                    if (!existing.images) existing.images = existing.image ? [existing.image] : [];
-                    existing.images[imgIndex] = newUrl;
-                    existing.images = existing.images.filter(Boolean);
-                    existing.image = existing.images[0] || null;
-
-                    data[targetId] = existing;
-                    saveData(data);
-
-                    await m.react("✅").catch(() => null);
-
-                    const wasShown = await sendProfileCardToHall(guild, targetId, existing, "Sảnh danh vọng 🏆 (Đã cập nhật ảnh)");
-                    if (wasShown) {
-                        await interaction.followUp({ content: `✅ Cập nhật bộ sưu tập ảnh thành công tại vị trí số **${imgIndex + 1}**!`, flags: ['Ephemeral'] });
-                    } else {
-                        await interaction.followUp({ content: `⚠️ Cập nhật ảnh thành công! Tuy nhiên hồ sơ này đang tạm ẩn do tài khoản chưa đủ vai trò kiểm duyệt.`, flags: ['Ephemeral'] });
+                let listText = ""; let index = 1;
+                for (const userId in data) {
+                    const userData = data[userId];
+                    if (userData.day && userData.month) {
+                        const daysLeft = getDaysUntilBirthday(userData.day, userData.month);
+                        listText += `#${index} 👤 **${userData.name}** - 🎂 ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""} (Còn **${daysLeft} ngày**)\n\n`;
+                        index++;
                     }
                 }
-            });
+                const listEmbed = new EmbedBuilder().setColor("#FFB6C1").setTitle("🎂 DANH SÁCH SINH NHẬT THÀNH VIÊN 🎂").setDescription(listText || "Chưa có thành viên nào cập nhật hồ sơ sinh nhật.").setTimestamp();
+                return await interaction.editReply({ embeds: [listEmbed] });
+            }
 
-            collector.on("end", (collected, reason) => {
-                if (reason === "time") {
-                    interaction.followUp({ content: "⏳ Hết thời gian chờ 60 giây.", flags: ['Ephemeral'] });
+            if (commandName === "birthday") {
+                const data = loadData();
+                const userIds = Object.keys(data);
+                if (userIds.length === 0) return interaction.reply({ content: "❌ Chưa có hồ sơ sinh nhật nào!", flags: ['Ephemeral'] });
+
+                const selectMenu = new StringSelectMenuBuilder().setCustomId("select_birthday_lookup").setPlaceholder("Chọn thành viên để xem ngày sinh nhật...");
+                for (const id of userIds) {
+                    const userData = data[id];
+                    const userObj = client.users.cache.get(id) || await client.users.fetch(id).catch(() => null);
+                    selectMenu.addOptions({
+                        label: `${userData.name}${userObj ? ` (@${userObj.username})` : ""}`.slice(0, 100),
+                        value: id,
+                        description: `Discord ID: ${id}`
+                    });
                 }
-            });
-            return;
+                return await interaction.reply({ content: "🎂 **Chọn thành viên bạn muốn xem thông tin sinh nhật:**", components: [new ActionRowBuilder().addComponents(selectMenu)] });
+            }
+
+            if (commandName === "taoprofile") {
+                if (!isSelfAllowed(member)) return interaction.reply({ content: "❌ Bạn không có quyền sử dụng lệnh này!", flags: ['Ephemeral'] });
+                
+                const data = loadData();
+                if (data[user.id]) {
+                    return interaction.reply({ content: "❌ Bạn đã có hồ sơ! Dùng `/suaprofile` để sửa hoặc `/xoaprofile` để xóa.", flags: ['Ephemeral'] });
+                }
+
+                const imageUrls = [1, 2, 3, 4].map(i => interaction.options.getAttachment(`anh${i}`)?.url).filter(Boolean);
+                tempImages.set(user.id, imageUrls);
+
+                const modal = new ModalBuilder().setCustomId(`profile_modal_${user.id}`).setTitle("Thông Tin Hồ Sơ Cá Nhân");
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_slogan").setLabel("Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06)").setStyle(TextInputStyle.Short).setRequired(false))
+                );
+                return await interaction.showModal(modal);
+            }
+
+            if (commandName === "taohoprofile") {
+                if (!isAdmin) return interaction.reply({ content: "❌ Chỉ QTV mới được dùng lệnh tạo hộ này!", flags: ['Ephemeral'] });
+                
+                const targetUser = interaction.options.getUser("user");
+                const data = loadData();
+                if (data[targetUser.id]) {
+                    return interaction.reply({ content: `❌ Thành viên <@${targetUser.id}> đã có hồ sơ cá nhân trên hệ thống!`, flags: ['Ephemeral'] });
+                }
+                
+                const imageUrls = [1, 2, 3, 4].map(i => interaction.options.getAttachment(`anh${i}`)?.url).filter(Boolean);
+                tempImages.set(targetUser.id, imageUrls);
+
+                const modal = new ModalBuilder().setCustomId(`profile_modal_${targetUser.id}`).setTitle(`Tạo hộ hồ sơ: ${targetUser.username}`);
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ten").setLabel("Họ và tên").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_slogan").setLabel("Slogan cá nhân").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06)").setStyle(TextInputStyle.Short).setRequired(false))
+                );
+                return await interaction.showModal(modal);
+            }
+
+            if (commandName === "taosukien") {
+                const role1 = interaction.options.getRole("role1");
+                const role2 = interaction.options.getRole("role2");
+                const rolesSelected = [role1, role2].filter(Boolean).map(r => r.id);
+
+                tempEventRoles.set(user.id, rolesSelected);
+
+                const modal = new ModalBuilder().setCustomId(`create_event_modal`).setTitle("Tạo Sự Kiện Nhắc Nhở");
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_name").setLabel("Tên sự kiện").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_date").setLabel("Ngày diễn ra (Vd: 14/02)").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_msg").setLabel("Nội dung lời nhắn thông báo").setStyle(TextInputStyle.Paragraph).setRequired(true))
+                );
+                return await interaction.showModal(modal);
+            }
+
+            if (commandName === "suasukien") {
+                const eventsData = loadEventsData();
+                const editableEvents = Object.keys(eventsData).filter(id => isAdmin || eventsData[id].creatorId === user.id);
+
+                if (editableEvents.length === 0) return interaction.reply({ content: "❌ Bạn không có sự kiện nào để sửa!", flags: ['Ephemeral'] });
+
+                const selectMenu = new StringSelectMenuBuilder().setCustomId("select_event_edit").setPlaceholder("Chọn sự kiện bạn muốn chỉnh sửa...");
+                editableEvents.forEach(id => {
+                    selectMenu.addOptions({ label: eventsData[id].name.slice(0, 100), value: id, description: `Ngày: ${eventsData[id].day}/${eventsData[id].month}` });
+                });
+                return await interaction.reply({ content: "⚙️ **Chọn sự kiện bạn muốn sửa thông tin:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
+            }
+
+            if (commandName === "xoasukien") {
+                const eventsData = loadEventsData();
+                const deletableEvents = Object.keys(eventsData).filter(id => isAdmin || eventsData[id].creatorId === user.id);
+
+                if (deletableEvents.length === 0) return interaction.reply({ content: "❌ Bạn không sở hữu sự kiện nào để tiến hành xóa!", flags: ['Ephemeral'] });
+
+                const selectMenu = new StringSelectMenuBuilder().setCustomId("select_event_delete").setPlaceholder("Chọn sự kiện bạn muốn xóa bỏ...");
+                deletableEvents.forEach(id => {
+                    selectMenu.addOptions({ label: eventsData[id].name.slice(0, 100), value: id, description: `Ngày: ${eventsData[id].day}/${eventsData[id].month}` });
+                });
+                return await interaction.reply({ content: "🚨 **Chọn sự kiện bạn muốn xóa vĩnh viễn khỏi server:**", components: [new ActionRowBuilder().addComponents(selectMenu)], flags: ['Ephemeral'] });
+            }
+
+            if (commandName === "danhsachsukien") {
+                await interaction.deferReply();
+                const eventsData = loadEventsData();
+                let listText = ""; let index = 1;
+                for (const id in eventsData) {
+                    const event = eventsData[id];
+                    const daysLeft = getDaysUntilBirthday(event.day, event.month);
+                    listText += `#${index} 🔔 **${event.name}** - 📆 Ngày: ${event.day}/${event.month} (Còn **${daysLeft} ngày**) - ✍️ Người tạo: <@${event.creatorId}>\n\n`;
+                    index++;
+                }
+                const listEmbed = new EmbedBuilder().setColor("#F1C40F").setTitle("✨ DANH SÁCH SỰ KIỆN TRONG SERVER ✨").setDescription(listText || "Chưa có sự kiện nào được tạo lập nhắc nhở.").setTimestamp();
+                return await interaction.editReply({ embeds: [listEmbed] });
+            }
+
+            if (commandName === "sukien") {
+                const eventsData = loadEventsData();
+                const eventIds = Object.keys(eventsData);
+                if (eventIds.length === 0) return interaction.reply({ content: "❌ Chưa có sự kiện nhắc nhở nào được lưu!", flags: ['Ephemeral'] });
+
+                const selectMenu = new StringSelectMenuBuilder().setCustomId("select_event_lookup").setPlaceholder("Chọn sự kiện để tra cứu...");
+                eventIds.forEach(id => {
+                    selectMenu.addOptions({ label: eventsData[id].name.slice(0, 100), value: id, description: `Người tạo: @${eventsData[id].creatorName || "Ẩn danh"}` });
+                });
+                return await interaction.reply({ content: "🔔 **Chọn sự kiện bạn muốn tra cứu thông tin:**", components: [new ActionRowBuilder().addComponents(selectMenu)] });
+            }
         }
 
-        if (customId.startsWith("confirm_delete_")) {
-            const targetId = customId.replace("confirm_delete_", "");
-            await deleteProfileCard(guild, targetId);
-            return await interaction.update({ content: "✅ Đã xóa hồ sơ cá nhân thành công khỏi Sảnh Danh Vọng!", components: [] });
+        if (interaction.isStringSelectMenu()) {
+            const { customId, values, guild } = interaction;
+            const targetId = values[0];
+
+            if (customId === "select_edit_profile") return await openEditProfileModal(interaction, targetId);
+            if (customId === "select_edit_photos") return await openPhotoEditorDashboard(interaction, targetId);
+
+            if (customId === "select_delete_profile") {
+                const data = loadData();
+                if (!data[targetId]) return interaction.reply({ content: "❌ Lỗi: Hồ sơ không tồn tại.", flags: ['Ephemeral'] });
+                const targetName = data[targetId].name || targetId;
+                await deleteProfileCard(guild, targetId);
+                return await interaction.update({ content: `✅ Đã xóa thành công hồ sơ cá nhân của **${targetName}** (<@${targetId}>)!`, components: [] });
+            }
+
+            if (customId === "select_birthday_lookup") {
+                await interaction.deferReply();
+                const data = loadData();
+                const userData = data[targetId];
+                if (!userData) return await interaction.editReply({ content: "❌ Không tìm thấy thông tin hồ sơ của thành viên này." });
+
+                const userObj = client.users.cache.get(targetId) || await client.users.fetch(targetId).catch(() => null);
+                const daysLeft = getDaysUntilBirthday(userData.day, userData.month);
+                const countdownText = daysLeft === 0 ? "🎂 Hôm nay luôn! Chúc mừng sinh nhật nhé!" : `Còn **${daysLeft} ngày**`;
+
+                const bdayEmbed = new EmbedBuilder()
+                    .setColor("#FFB6C1")
+                    .setTitle("🎂 THÔNG TIN SINH NHẬT THÀNH VIÊN 🎂")
+                    .setDescription(`👤 **${userData.name}** (${userObj ? `@${userObj.username}` : "Thành viên"})\n🎂 Ngày sinh: ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}\n⏳ ${countdownText}`)
+                    .setThumbnail(userObj ? userObj.displayAvatarURL({ dynamic: true }) : null)
+                    .setTimestamp();
+
+                await interaction.editReply({ content: null, embeds: [bdayEmbed], components: [] });
+            }
+
+            if (customId === "select_event_edit") {
+                const eventsData = loadEventsData();
+                const event = eventsData[targetId];
+                if (!event) return interaction.reply({ content: "❌ Sự kiện không tồn tại!", flags: ['Ephemeral'] });
+
+                const modal = new ModalBuilder().setCustomId(`edit_event_modal_${targetId}`).setTitle("Chỉnh Sửa Sự Kiện");
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_name").setLabel("Tên sự kiện").setStyle(TextInputStyle.Short).setValue(event.name || "").setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_date").setLabel("Ngày diễn ra (Vd: 14/02)").setStyle(TextInputStyle.Short).setValue(`${event.day}/${event.month}`).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sukien_msg").setLabel("Nội dung lời nhắn thông báo").setStyle(TextInputStyle.Paragraph).setValue(event.message || "").setRequired(true))
+                );
+                return await interaction.showModal(modal);
+            }
+
+            if (customId === "select_event_delete") {
+                await interaction.deferReply({ flags: ['Ephemeral'] });
+                const eventsData = loadEventsData();
+                if (!eventsData[targetId]) return await interaction.editReply({ content: "❌ Sự kiện không tồn tại!" });
+
+                const deletedName = eventsData[targetId].name;
+                delete eventsData[targetId];
+                saveEventsData(eventsData);
+                return await interaction.editReply({ content: `✅ Đã xóa bỏ thành công sự kiện nhắc nhở: **${deletedName}**!` });
+            }
+
+            if (customId === "select_event_lookup") {
+                await interaction.deferReply();
+                const eventsData = loadEventsData();
+                const event = eventsData[targetId];
+                if (!event) return await interaction.editReply({ content: "❌ Sự kiện không tồn tại." });
+
+                const daysLeft = getDaysUntilBirthday(event.day, event.month);
+                const rolesTagText = event.roles && event.roles.length > 0 ? event.roles.map(rId => `<@&${rId}>`).join(", ") : "Không có";
+
+                const eventEmbed = new EmbedBuilder()
+                    .setColor("#00F0FF")
+                    .setTitle(`🔔 THÔNG TIN SỰ KIỆN 🔔`)
+                    .setDescription(`🔔 **Tên sự kiện:** ${event.name}\n📆 Ngày diễn ra: ${event.day}/${event.month}\n⏳ ${daysLeft === 0 ? "Hôm nay luôn!" : `Còn ${daysLeft} ngày`}\n✍️ Người tạo: <@${event.creatorId}>\n👥 Nhóm nhận tin: ${rolesTagText}`)
+                    .addFields({ name: "💬 Lời nhắn đặc biệt:", value: event.message || "Không có lời nhắn đi kèm." })
+                    .setTimestamp();
+
+                await interaction.editReply({ content: null, embeds: [eventEmbed], components: [] });
+            }
         }
 
-        if (customId === "cancel_delete") {
-            return await interaction.update({ content: "❌ Đã hủy thao tác xóa.", components: [] });
+        if (interaction.isModalSubmit()) {
+            const { customId, guild, fields, user } = interaction;
+
+            if (customId.startsWith("profile_modal_")) {
+                await interaction.deferReply({ flags: ['Ephemeral'] });
+                const targetId = customId.replace("profile_modal_", "");
+
+                const name = fields.getTextInputValue("modal_ten");
+                const slogan = fields.getTextInputValue("modal_slogan");
+                const location = fields.getTextInputValue("modal_noio");
+                const hobbies = fields.getTextInputValue("modal_sothich");
+                const bdayRaw = fields.getTextInputValue("modal_ngaysinh").trim();
+
+                let day = null, month = null, year = null;
+                if (bdayRaw) {
+                    const parts = bdayRaw.split(/[-/.]/);
+                    if (parts.length >= 2) { 
+                        day = parseInt(parts[0], 10); 
+                        month = parseInt(parts[1], 10); 
+                        if (parts.length >= 3) year = parseInt(parts[2], 10); 
+                    }
+                    if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+                        return interaction.editReply({ content: "❌ Ngày sinh nhật không hợp lệ!" });
+                    }
+                }
+
+                const imageUrls = tempImages.get(targetId) || [];
+                if (imageUrls.length === 0) return interaction.editReply({ content: "❌ Không tìm thấy tệp ảnh tạm thời của hồ sơ." });
+
+                const data = loadData();
+                data[targetId] = { name, slogan, location, hobbies, images: imageUrls, day, month, year, messageId: null, hidden: false };
+                saveData(data);
+                tempImages.delete(targetId);
+
+                const wasShown = await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆");
+                if (wasShown) {
+                    return await interaction.editReply({ content: `✅ Đã lưu và hiển thị hồ sơ của <@${targetId}> lên Sảnh Danh Vọng!` });
+                } else {
+                    return await interaction.editReply({ content: `⚠️ Đã lưu cấu hình thành công! Tuy nhiên hồ sơ này tạm ẩn do tài khoản <@${targetId}> chưa đủ vai trò kiểm duyệt.` });
+                }
+            }
+
+            if (customId.startsWith("edit_profile_modal_")) {
+                await interaction.deferReply({ flags: ['Ephemeral'] });
+                const targetId = customId.replace("edit_profile_modal_", "");
+                
+                const name = fields.getTextInputValue("modal_ten");
+                const slogan = fields.getTextInputValue("modal_slogan");
+                const location = fields.getTextInputValue("modal_noio");
+                const hobbies = fields.getTextInputValue("modal_sothich");
+                const bdayRaw = fields.getTextInputValue("modal_ngaysinh").trim();
+
+                let day = null, month = null, year = null;
+                if (bdayRaw) {
+                    const parts = bdayRaw.split(/[-/.]/);
+                    if (parts.length >= 2) {
+                        day = parseInt(parts[0], 10);
+                        month = parseInt(parts[1], 10);
+                        if (parts.length >= 3) year = parseInt(parts[2], 10);
+                    }
+                    if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+                        return interaction.editReply({ content: "❌ Ngày sinh nhật không hợp lệ!" });
+                    }
+                }
+
+                const data = loadData();
+                const existing = data[targetId] || {};
+                const imageUrls = existing.images || (existing.image ? [existing.image] : []) || [];
+
+                data[targetId] = { name, slogan, location, hobbies, images: imageUrls, day, month, year, messageId: existing.messageId || null, hidden: existing.hidden || false };
+                saveData(data);
+
+                const wasShown = await sendProfileCardToHall(guild, targetId, data[targetId], "Sảnh danh vọng 🏆 (Đã cập nhật thông tin)");
+                if (wasShown) {
+                    return await interaction.editReply({ content: `✅ Đã cập nhật thông tin tại Sảnh Danh Vọng thành công!` });
+                } else {
+                    return await interaction.editReply({ content: `⚠️ Đã lưu thông tin! Tuy nhiên hồ sơ đang tạm ẩn do tài khoản chưa đủ vai trò kiểm duyệt.` });
+                }
+            }
+
+            if (customId === "create_event_modal") {
+                await interaction.deferReply({ flags: ['Ephemeral'] });
+                const sName = fields.getTextInputValue("modal_sukien_name");
+                const sDateRaw = fields.getTextInputValue("modal_sukien_date").trim();
+                const sMsg = fields.getTextInputValue("modal_sukien_msg");
+
+                let day = null, month = null;
+                if (sDateRaw) {
+                    const parts = sDateRaw.split(/[-/.]/);
+                    if (parts.length >= 2) {
+                        day = parseInt(parts[0], 10);
+                        month = parseInt(parts[1], 10);
+                    }
+                    if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+                        return interaction.editReply({ content: "❌ Định dạng ngày tháng sự kiện không hợp lệ! Nhập: ngày/tháng (Vd: 14/02)" });
+                    }
+                }
+
+                const rolesSelected = tempEventRoles.get(user.id) || [];
+                tempEventRoles.delete(user.id);
+
+                const eventsData = loadEventsData();
+                const eventId = `evt_${Date.now()}`;
+                eventsData[eventId] = { name: sName, day, month, message: sMsg, roles: rolesSelected, creatorId: user.id, creatorName: user.username };
+                saveEventsData(eventsData);
+
+                return await interaction.editReply({ content: `✅ Đã tạo sự kiện: **${sName}** (${day}/${month})!` });
+            }
+
+            if (customId.startsWith("edit_event_modal_")) {
+                await interaction.deferReply({ flags: ['Ephemeral'] });
+                const targetEventId = customId.replace("edit_event_modal_", "");
+                const sName = fields.getTextInputValue("modal_sukien_name");
+                const sDateRaw = fields.getTextInputValue("modal_sukien_date").trim();
+                const sMsg = fields.getTextInputValue("modal_sukien_msg");
+
+                let day = null, month = null;
+                if (sDateRaw) {
+                    const parts = sDateRaw.split(/[-/.]/);
+                    if (parts.length >= 2) {
+                        day = parseInt(parts[0], 10);
+                        month = parseInt(parts[1], 10);
+                    }
+                    if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) {
+                        return interaction.editReply({ content: "❌ Định dạng ngày sự kiện không hợp lệ!" });
+                    }
+                }
+
+                const eventsData = loadEventsData();
+                const existingEvent = eventsData[targetEventId];
+                if (!existingEvent) return interaction.editReply({ content: "❌ Sự kiện không tồn tại." });
+
+                eventsData[targetEventId] = { ...existingEvent, name: sName, day, month, message: sMsg };
+                saveEventsData(eventsData);
+
+                return await interaction.editReply({ content: `✅ Đã sửa thành công sự kiện: **${sName}**!` });
+            }
+
+            if (customId === "sticky_modal") {
+                await interaction.deferReply({ flags: ['Ephemeral'] });
+                let text = fields.getTextInputValue("modal_sticky_content").replace(/\\n/g, '\n').replace(/\|/g, '\n');
+
+                const stickyData = loadStickyData();
+                if (stickyData[interaction.channel.id]?.lastMessageId) {
+                    const oldMsg = await interaction.channel.messages.fetch(stickyData[interaction.channel.id].lastMessageId).catch(() => null);
+                    if (oldMsg) await oldMsg.delete().catch(() => null);
+                }
+
+                const stickyEmbed = new EmbedBuilder().setColor("#F1C40F").setTitle("📌 Tin nhắn ghim:").setDescription(text).setTimestamp();
+                const newMsg = await interaction.channel.send({ embeds: [stickyEmbed] });
+
+                stickyData[interaction.channel.id] = { text, lastMessageId: newMsg.id };
+                saveStickyData(stickyData);
+
+                return await interaction.editReply({ content: "✅ Tạo tin nhắn ghim thành công!" });
+            }
+        }
+
+        if (interaction.isButton()) {
+            const { customId, user, guild } = interaction;
+
+            if (customId.startsWith("slide_")) {
+                // Trì hoãn phản hồi ngay lập tức để tránh lỗi timeout 3 giây của Discord API (XỬ LÝ TRIỆT ĐỂ)
+                await interaction.deferUpdate().catch(() => null);
+
+                const parts = customId.split("_");
+                const profileUserId = parts[1];
+                const targetIndex = parseInt(parts[2], 10);
+
+                const data = loadData();
+                const userData = data[profileUserId];
+                const imageUrls = userData ? (userData.images || (userData.image ? [userData.image] : []) || []) : [];
+                if (imageUrls.length === 0) {
+                    return await interaction.followUp({ content: "❌ Không có dữ liệu ảnh trong cơ sở dữ liệu!", flags: ['Ephemeral'] }).catch(() => null);
+                }
+
+                // Cập nhật và tự gia hạn liên kết CDN ngay khi người dùng chuyển trang
+                let finalUrls = imageUrls;
+                try {
+                    const refreshedMapping = await refreshDiscordUrls(imageUrls);
+                    let hasChanged = false;
+                    finalUrls = imageUrls.map(url => {
+                        if (refreshedMapping[url]) {
+                            hasChanged = true;
+                            return refreshedMapping[url];
+                        }
+                        return url;
+                    });
+
+                    if (hasChanged && userData) {
+                        userData.images = finalUrls;
+                        userData.image = finalUrls[0] || null;
+                        data[profileUserId] = userData;
+                        saveData(data);
+                    }
+                } catch (cdnErr) {
+                    console.error("❌ Lỗi tự sửa ảnh khi lướt slide:", cdnErr);
+                }
+
+                const total = finalUrls.length;
+                const safeIndex = (targetIndex >= 0 && targetIndex < total) ? targetIndex : 0;
+                
+                const newEmbed = EmbedBuilder.from(interaction.message.embeds[0]).setImage(finalUrls[safeIndex]);
+
+                const prevIndex = safeIndex === 0 ? total - 1 : safeIndex - 1;
+                const nextIndex = safeIndex === total - 1 ? 0 : safeIndex + 1;
+
+                const newRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`slide_${profileUserId}_${prevIndex}_prev`).setLabel('<<').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId('dummy').setLabel(`${safeIndex + 1}/${total}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
+                    new ButtonBuilder().setCustomId(`slide_${profileUserId}_${nextIndex}_next`).setLabel('>>').setStyle(ButtonStyle.Secondary)
+                );
+
+                // Cập nhật giao diện an toàn bằng editReply
+                return await interaction.editReply({ embeds: [newEmbed], components: [newRow] }).catch(() => null);
+            }
+
+            if (customId.startsWith("changephoto_")) {
+                const parts = customId.split("_");
+                const targetId = parts[1];
+                const imgIndex = parseInt(parts[2], 10);
+
+                await interaction.update({ content: `📸 **[ĐANG CHỜ ẢNH]** Tải lên **1 ảnh mới** vào kênh này trong 60 giây để ghi đè vào **Vị trí thứ ${imgIndex + 1}**...`, embeds: [], components: [] });
+
+                const filter = m => m.author.id === user.id && m.attachments.size > 0;
+                const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 60000 });
+
+                collector.on("collect", async m => {
+                    const attachment = m.attachments.first();
+                    const newUrl = attachment.url;
+
+                    const data = loadData();
+                    const existing = data[targetId];
+
+                    if (existing) {
+                        if (!existing.images) existing.images = existing.image ? [existing.image] : [];
+                        existing.images[imgIndex] = newUrl;
+                        existing.images = existing.images.filter(Boolean);
+                        existing.image = existing.images[0] || null;
+
+                        data[targetId] = existing;
+                        saveData(data);
+
+                        await m.react("✅").catch(() => null);
+
+                        const wasShown = await sendProfileCardToHall(guild, targetId, existing, "Sảnh danh vọng 🏆 (Đã cập nhật ảnh)");
+                        if (wasShown) {
+                            await interaction.followUp({ content: `✅ Cập nhật bộ sưu tập ảnh thành công tại vị trí số **${imgIndex + 1}**!`, flags: ['Ephemeral'] });
+                        } else {
+                            await interaction.followUp({ content: `⚠️ Cập nhật ảnh thành công! Tuy nhiên hồ sơ này đang tạm ẩn do tài khoản chưa đủ vai trò kiểm duyệt.`, flags: ['Ephemeral'] });
+                        }
+                    }
+                });
+
+                collector.on("end", (collected, reason) => {
+                    if (reason === "time") {
+                        interaction.followUp({ content: "⏳ Hết thời gian chờ 60 giây.", flags: ['Ephemeral'] });
+                    }
+                });
+                return;
+            }
+
+            if (customId.startsWith("confirm_delete_")) {
+                const targetId = customId.replace("confirm_delete_", "");
+                await deleteProfileCard(guild, targetId);
+                return await interaction.update({ content: "✅ Đã xóa hồ sơ cá nhân thành công khỏi Sảnh Danh Vọng!", components: [] });
+            }
+
+            if (customId === "cancel_delete") {
+                return await interaction.update({ content: "❌ Đã hủy thao tác xóa.", components: [] });
+            }
+        }
+    } catch (interactError) {
+        console.error("❌ Phát hiện lỗi trong trình xử lý tương tác của Bot:", interactError);
+        // Trả lời an toàn chống treo tương tác phía người dùng
+        try {
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp({ content: "❌ Đã xảy ra lỗi hệ thống khi xử lý thao tác này. Vui lòng thử lại sau!", flags: ['Ephemeral'] }).catch(() => null);
+            } else {
+                await interaction.reply({ content: "❌ Đã xảy ra lỗi hệ thống khi xử lý thao tác này. Vui lòng thử lại sau!", flags: ['Ephemeral'] }).catch(() => null);
+            }
+        } catch (innerErr) {
+            // Bỏ qua lỗi bổ sung trong lúc ghi đè
         }
     }
 });
