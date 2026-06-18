@@ -387,21 +387,24 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
     const profileChannel = await guild.channels.fetch(process.env.PROFILE_CHANNEL_ID).catch(() => null);
     if (!profileChannel) return false;
 
+    // Load tệp dữ liệu tươi mới nhất từ đĩa cứng từ đầu hàm
     const data = loadData();
+    const currentProfile = data[targetId] || userData;
 
     if (shouldHide) {
-        if (userData.messageId) {
-            const oldMsg = await profileChannel.messages.fetch(userData.messageId).catch(() => null);
+        if (currentProfile.messageId) {
+            const oldMsg = await profileChannel.messages.fetch(currentProfile.messageId).catch(() => null);
             if (oldMsg) await oldMsg.delete().catch(() => null);
         }
-        data[targetId].messageId = null;
-        data[targetId].hidden = true;
+        currentProfile.messageId = null;
+        currentProfile.hidden = true;
+        data[targetId] = currentProfile;
         saveData(data);
         return false;
     }
 
     // --- TỰ ĐỘNG CHUẨN HÓA VÀ LÀM MỚI CHỮ KÝ ẢNH DISCORD (CDN REFRESH) ---
-    let imageUrls = userData.images || (userData.image ? [userData.image] : []) || [];
+    let imageUrls = currentProfile.images || (currentProfile.image ? [currentProfile.image] : []) || [];
     if (imageUrls.length > 0) {
         const refreshedMapping = await refreshDiscordUrls(imageUrls);
         let hasChanged = false;
@@ -417,28 +420,20 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
 
         if (hasChanged) {
             imageUrls = finalUrls;
-            userData.images = finalUrls;
-            userData.image = finalUrls[0] || null;
-            
-            // Lưu liên kết mới vào birthdays.json ngay lập tức để duy trì liên kết sống
-            const fullData = loadData();
-            if (fullData[targetId]) {
-                fullData[targetId].images = finalUrls;
-                fullData[targetId].image = finalUrls[0] || null;
-                saveData(fullData);
-            }
+            currentProfile.images = finalUrls;
+            currentProfile.image = finalUrls[0] || null;
         }
     }
     // -----------------------------------------------------------------------
 
-    let descriptionText = `> 💬 *"${userData.slogan}"*\n\n📌 **Nơi ở:** ${userData.location}\n🩷 **Sở thích:** ${userData.hobbies}`;
-    if (userData.day && userData.month) {
-        descriptionText += `\n🎂 **Ngày sinh:** ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}`;
+    let descriptionText = `> 💬 *"${currentProfile.slogan}"*\n\n📌 **Nơi ở:** ${currentProfile.location}\n🩷 **Sở thích:** ${currentProfile.hobbies}`;
+    if (currentProfile.day && currentProfile.month) {
+        descriptionText += `\n🎂 **Ngày sinh:** ${currentProfile.day}/${currentProfile.month}${currentProfile.year ? `/${currentProfile.year}` : ""}`;
     }
 
     const profileEmbed = new EmbedBuilder()
         .setColor("#2F3136")
-        .setTitle(`☁️ ${userData.name} ☁️`)
+        .setTitle(`☁️ ${currentProfile.name} ☁️`)
         .setAuthor({ name: userObj.tag, iconURL: userObj.displayAvatarURL() })
         .setDescription(descriptionText)
         .setImage(imageUrls[0] || null)
@@ -459,8 +454,8 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
     }
 
     let messageSent = null;
-    if (userData.messageId) {
-        const existingMsg = await profileChannel.messages.fetch(userData.messageId).catch(() => null);
+    if (currentProfile.messageId) {
+        const existingMsg = await profileChannel.messages.fetch(currentProfile.messageId).catch(() => null);
         if (existingMsg) {
             messageSent = await existingMsg.edit({ embeds: [profileEmbed], components }).catch(() => null);
         }
@@ -471,8 +466,11 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
     }
 
     if (messageSent) {
-        data[targetId].messageId = messageSent.id;
-        data[targetId].hidden = false;
+        currentProfile.messageId = messageSent.id;
+        currentProfile.hidden = false;
+        data[targetId] = currentProfile;
+        
+        // Chỉ ghi tệp birthdays.json duy nhất 1 lần tại cuối tiến trình để không bị mất dữ liệu CDN mới làm mới!
         saveData(data);
         return true;
     }
