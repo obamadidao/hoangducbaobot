@@ -3,7 +3,7 @@ const {
     Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
     ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
     REST, Routes, SlashCommandBuilder, PermissionFlagsBits,
-    StringSelectMenuBuilder
+    StringSelectMenuBuilder, ChannelType
 } = require("discord.js");
 const cron = require("node-cron");
 const fs = require("fs");
@@ -75,10 +75,58 @@ function getDaysUntilBirthday(day, month) {
     return Math.ceil((bdayTest - now) / (1000 * 60 * 60 * 24));
 }
 
+function formatBirthday(day, month, year) {
+    if (!day || !month) return "";
+    const d = String(day).padStart(2, '0');
+    const m = String(month).padStart(2, '0');
+    return `${d}/${m}${year ? `/${year}` : ""}`;
+}
+
+async function saveImagesPermanently(guild, targetId, urls) {
+    if (!urls || urls.length === 0) return [];
+    
+    try {
+        // Tìm hoặc tự tạo kênh lưu trữ ẩn không gây phiền hà cho Server
+        let storageChannel = guild.channels.cache.find(c => c.name === "profile-images-storage");
+        if (!storageChannel) {
+            storageChannel = await guild.channels.create({
+                name: "profile-images-storage",
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    {
+                        id: guild.roles.everyone.id,
+                        deny: [PermissionFlagsBits.ViewChannel],
+                    },
+                    {
+                        id: client.user.id,
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles],
+                    }
+                ]
+            }).catch(() => null);
+        }
+
+        if (!storageChannel) {
+            console.error("❌ Không thể khởi tạo kho lưu trữ ảnh bảo mật!");
+            return urls; // Backup trả về URL gốc nếu gặp lỗi tạo kênh
+        }
+
+        // Đẩy toàn bộ tệp đính kèm tạm vào kênh ẩn để sao lưu vĩnh viễn
+        const savedMessage = await storageChannel.send({
+            content: `🖼️ Kho ảnh lưu trữ trọn đời của thành viên <@${targetId}> (ID: ${targetId})`,
+            files: urls.map(url => ({ attachment: url }))
+        });
+
+        // Trích xuất các URL đính kèm đã được lưu cố định trên CDN của Discord
+        return savedMessage.attachments.map(att => att.url);
+    } catch (err) {
+        console.error("❌ Lỗi khi tải và sao lưu ảnh vĩnh viễn:", err);
+        return urls;
+    }
+}
+
 async function refreshDiscordUrls(urls) {
     if (!urls || urls.length === 0) return {};
     
-    // Lọc ra các URL hình ảnh thuộc máy chủ lưu trữ của Discord và chuẩn hóa thành cdn.discordapp.com chuẩn
     const targetUrls = urls.filter(url => 
         url && (url.includes("cdn.discordapp.com/attachments/") || 
                 url.includes("media.discordapp.net/attachments/"))
@@ -107,7 +155,6 @@ async function refreshDiscordUrls(urls) {
         const mapping = {};
         if (json.refreshed_urls && Array.isArray(json.refreshed_urls)) {
             for (const item of json.refreshed_urls) {
-                // Đảm bảo khóa lưu trữ cũng được chuẩn hóa về định dạng cdn để so khớp chính xác
                 const originalCdn = item.original.replace("media.discordapp.net/attachments/", "cdn.discordapp.com/attachments/");
                 mapping[originalCdn] = item.refreshed;
             }
@@ -235,7 +282,7 @@ client.once("ready", async () => {
     const loiChucMacDinh = [
         "Ôi dời ơi **{name}**! ăn cứt đi nhá :zzzzz_tom_blushh: hehe",
         "Tới công chuyện luôn :tom_creepylaugh: ! Sinh nhật của **{name}**. Liên hệ ngay cho anh zai @fowf.ongggg278 gửi qr để nhận ngay 2 lít trong sinh nhật của mình nhé",
-        "Happy Birthday! Chúc **{name}** có một ngày sinh nhật thật ấm áp bên gia đình, bạn bè và luôn giữ vững ngọn lửa đam mê với những sở thích của mình! 🩷✨",
+        "Happy Birthday! Chúc **{name}** có một ngày sinh nhật thật ấm áp bên gia biệt, bạn bè và luôn giữ vững ngọn lửa đam mê với những sở thích của mình! 🩷✨",
         "**{name}** lắm tiền vậy sinh nhật không thấy bank mấy ae ít xèng nhể :CBuwu:. Thôi thì nửa bill bữa nướng Oishi cũng được",
         "Thế mà lại hay anh em ạ, vì **{name}** tuổi mới chắc chắn sẽ có người yêu mới :_emoji_: 🎉",
         "Chúc mừng sinh nhật **{name}**! Tuổi mới ăn khỏe, ngủ ngon, học tập và làm việc thật năng suất, sớm thành công rực rỡ nha bạn tôi! 🌟🍰",
@@ -389,7 +436,6 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
     const profileChannel = await guild.channels.fetch(process.env.PROFILE_CHANNEL_ID).catch(() => null);
     if (!profileChannel) return false;
 
-    // Tải tệp dữ liệu tươi mới nhất từ đĩa cứng từ đầu hàm
     const data = loadData();
     const currentProfile = data[targetId] || userData;
 
@@ -426,7 +472,6 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
         const refreshedMapping = await refreshDiscordUrls(imageUrls);
         let hasChanged = false;
         const finalUrls = imageUrls.map(url => {
-            // Chuẩn hóa định dạng cdn để đối chiếu chuẩn xác với mapping kết quả
             const normalizedUrl = url.replace("media.discordapp.net/attachments/", "cdn.discordapp.com/attachments/");
             if (refreshedMapping[normalizedUrl]) {
                 hasChanged = true;
@@ -441,11 +486,10 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
             currentProfile.image = finalUrls[0] || null;
         }
     }
-    // -----------------------------------------------------------------------
 
     let descriptionText = `> 💬 *"${currentProfile.slogan}"*\n\n📌 **Nơi ở:** ${currentProfile.location}\n🩷 **Sở thích:** ${currentProfile.hobbies}`;
     if (currentProfile.day && currentProfile.month) {
-        descriptionText += `\n🎂 **Ngày sinh:** ${currentProfile.day}/${currentProfile.month}${currentProfile.year ? `/${currentProfile.year}` : ""}`;
+        descriptionText += `\n🎂 **Ngày sinh:** ${formatBirthday(currentProfile.day, currentProfile.month, currentProfile.year)}`;
     }
 
     const profileEmbed = new EmbedBuilder()
@@ -455,7 +499,7 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
         .setDescription(descriptionText)
         .setImage(imageUrls[0] || null)
         .setThumbnail(userObj.displayAvatarURL({ dynamic: true }))
-        .setFooter({ text: `${footerText} | ID: ${targetId}` }) // Lưu ID cố định ở footer chống lặp
+        .setFooter({ text: `${footerText} | ID: ${targetId}` })
         .setTimestamp();
 
     const components = [];
@@ -499,7 +543,6 @@ async function deleteProfileCard(guild, targetId) {
     const data = loadData();
     const userData = data[targetId];
     
-    // Tìm và xóa tin nhắn trên Sảnh Danh Vọng sử dụng ID cố định
     const profileChannel = await guild.channels.fetch(process.env.PROFILE_CHANNEL_ID).catch(() => null);
     if (profileChannel) {
         const messages = await profileChannel.messages.fetch({ limit: 100 }).catch(() => null);
@@ -535,7 +578,7 @@ async function openEditProfileModal(interaction, targetId) {
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_slogan").setLabel("Câu nói tâm đắc / Slogan").setStyle(TextInputStyle.Short).setValue(existing.slogan || "").setRequired(true)),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_noio").setLabel("Nơi ở hiện tại").setStyle(TextInputStyle.Short).setValue(existing.location || "").setRequired(true)),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_sothich").setLabel("Sở thích").setStyle(TextInputStyle.Paragraph).setValue(existing.hobbies || "").setRequired(true)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06)").setStyle(TextInputStyle.Short).setValue(existing.day && existing.month ? `${existing.day}/${existing.month}${existing.year ? `/${existing.year}` : ""}` : "").setRequired(false))
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("modal_ngaysinh").setLabel("Ngày sinh (Vd: 15/06)").setStyle(TextInputStyle.Short).setValue(existing.day && existing.month ? formatBirthday(existing.day, existing.month, existing.year) : "").setRequired(false))
     );
     await interaction.showModal(modal);
 }
@@ -590,7 +633,7 @@ async function openPhotoEditorDashboard(interaction, targetId) {
         editRow.addComponents(new ButtonBuilder().setCustomId(`changephoto_${targetId}_${imageUrls.length}`).setLabel(`Thêm ảnh phụ`).setStyle(ButtonStyle.Success));
     }
 
-    // Hàng 2: Xóa ảnh (Chỉ hiển thị khi có từ 2 ảnh trở lên để tránh xóa ảnh cuối cùng)
+    // Hàng 2: Xóa ảnh
     const deleteRow = new ActionRowBuilder();
     if (imageUrls.length > 1) {
         for (let i = 0; i < imageUrls.length; i++) {
@@ -703,7 +746,7 @@ client.on("interactionCreate", async interaction => {
                     const userData = data[userId];
                     if (userData.day && userData.month) {
                         const daysLeft = getDaysUntilBirthday(userData.day, userData.month);
-                        listText += `#${index} 👤 **${userData.name}** - 🎂 ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""} (Còn **${daysLeft} ngày**)\n\n`;
+                        listText += `#${index} 👤 **${userData.name}** - 🎂 ${formatBirthday(userData.day, userData.month, userData.year)} (Còn **${daysLeft} ngày**)\n\n`;
                         index++;
                     }
                 }
@@ -871,7 +914,7 @@ client.on("interactionCreate", async interaction => {
                 const bdayEmbed = new EmbedBuilder()
                     .setColor("#FFB6C1")
                     .setTitle("🎂 THÔNG TIN SINH NHẬT THÀNH VIÊN 🎂")
-                    .setDescription(`👤 **${userData.name}** (${userObj ? `@${userObj.username}` : "Thành viên"})\n🎂 Ngày sinh: ${userData.day}/${userData.month}${userData.year ? `/${userData.year}` : ""}\n⏳ ${countdownText}`)
+                    .setDescription(`👤 **${userData.name}** (${userObj ? `@${userObj.username}` : "Thành viên"})\n🎂 Ngày sinh: ${formatBirthday(userData.day, userData.month, userData.year)}\n⏳ ${countdownText}`)
                     .setThumbnail(userObj ? userObj.displayAvatarURL({ dynamic: true }) : null)
                     .setTimestamp();
 
@@ -952,8 +995,11 @@ client.on("interactionCreate", async interaction => {
                 const imageUrls = tempImages.get(targetId) || [];
                 if (imageUrls.length === 0) return interaction.editReply({ content: "❌ Không tìm thấy tệp ảnh tạm thời của hồ sơ." });
 
+                // CHUYỂN TOÀN BỘ ẢNH TẠM THÀNH ẢNH LƯU TRỮ VĨNH VIỄN TRONG VAULT
+                const permanentUrls = await saveImagesPermanently(guild, targetId, imageUrls);
+
                 const data = loadData();
-                data[targetId] = { name, slogan, location, hobbies, images: imageUrls, day, month, year, messageId: null, hidden: false };
+                data[targetId] = { name, slogan, location, hobbies, images: permanentUrls, day, month, year, messageId: null, hidden: false };
                 saveData(data);
                 tempImages.delete(targetId);
 
@@ -1119,7 +1165,6 @@ client.on("interactionCreate", async interaction => {
             }
 
             if (customId.startsWith("slide_")) {
-                // Trì hoãn phản hồi ngay lập tức để tránh lỗi timeout 3 giây của Discord API (XỬ LÝ TRIỆT ĐỂ)
                 await interaction.deferUpdate().catch(() => null);
 
                 const parts = customId.split("_");
@@ -1171,7 +1216,6 @@ client.on("interactionCreate", async interaction => {
                     new ButtonBuilder().setCustomId(`slide_${profileUserId}_${nextIndex}_next`).setLabel('>>').setStyle(ButtonStyle.Secondary)
                 );
 
-                // Cập nhật giao diện an toàn bằng editReply
                 return await interaction.editReply({ embeds: [newEmbed], components: [newRow] }).catch(() => null);
             }
 
@@ -1194,7 +1238,15 @@ client.on("interactionCreate", async interaction => {
 
                     if (existing) {
                         if (!existing.images) existing.images = existing.image ? [existing.image] : [];
-                        existing.images[imgIndex] = newUrl;
+                        
+                        // CHUYỂN ĐỔI ẢNH TẢI LÊN MỚI THÀNH ẢNH VAULT VĨNH VIỄN TRÊN SERVER
+                        const permanentUrls = await saveImagesPermanently(guild, targetId, [newUrl]);
+                        if (permanentUrls && permanentUrls.length > 0) {
+                            existing.images[imgIndex] = permanentUrls[0];
+                        } else {
+                            existing.images[imgIndex] = newUrl;
+                        }
+
                         existing.images = existing.images.filter(Boolean);
                         existing.image = existing.images[0] || null;
 
@@ -1232,7 +1284,6 @@ client.on("interactionCreate", async interaction => {
         }
     } catch (interactError) {
         console.error("❌ Phát hiện lỗi trong trình xử lý tương tác của Bot:", interactError);
-        // Trả lời an toàn chống treo tương tác phía người dùng
         try {
             if (interaction.deferred || interaction.replied) {
                 await interaction.followUp({ content: "❌ Đã xảy ra lỗi hệ thống khi xử lý thao tác này. Vui lòng thử lại sau!", flags: ['Ephemeral'] }).catch(() => null);
@@ -1240,7 +1291,7 @@ client.on("interactionCreate", async interaction => {
                 await interaction.reply({ content: "❌ Đã xảy ra lỗi hệ thống khi xử lý thao tác này. Vui lòng thử lại sau!", flags: ['Ephemeral'] }).catch(() => null);
             }
         } catch (innerErr) {
-            // Bỏ qua lỗi bổ sung trong lúc ghi đè
+            // Bỏ qua lỗi
         }
     }
 });
