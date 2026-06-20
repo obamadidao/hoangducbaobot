@@ -436,6 +436,7 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
     const profileChannel = await guild.channels.fetch(process.env.PROFILE_CHANNEL_ID).catch(() => null);
     if (!profileChannel) return false;
 
+    // Tải tệp dữ liệu tươi mới nhất từ đĩa cứng từ đầu hàm
     const data = loadData();
     const currentProfile = data[targetId] || userData;
 
@@ -472,6 +473,7 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
         const refreshedMapping = await refreshDiscordUrls(imageUrls);
         let hasChanged = false;
         const finalUrls = imageUrls.map(url => {
+            // Chuẩn hóa định dạng cdn để đối chiếu chuẩn xác với mapping kết quả
             const normalizedUrl = url.replace("media.discordapp.net/attachments/", "cdn.discordapp.com/attachments/");
             if (refreshedMapping[normalizedUrl]) {
                 hasChanged = true;
@@ -486,6 +488,17 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
             currentProfile.image = finalUrls[0] || null;
         }
     }
+    // -----------------------------------------------------------------------
+
+    // Trích xuất và định dạng ngày gia nhập Server của thành viên
+    let joinDateText = "Chưa rõ";
+    if (member && member.joinedAt) {
+        const jDate = member.joinedAt;
+        const jd = String(jDate.getDate()).padStart(2, '0');
+        const jm = String(jDate.getMonth() + 1).padStart(2, '0');
+        const jy = jDate.getFullYear();
+        joinDateText = `${jd}/${jm}/${jy}`;
+    }
 
     let descriptionText = `> 💬 *"${currentProfile.slogan}"*\n\n📌 **Nơi ở:** ${currentProfile.location}\n🩷 **Sở thích:** ${currentProfile.hobbies}`;
     if (currentProfile.day && currentProfile.month) {
@@ -499,7 +512,7 @@ async function sendProfileCardToHall(guild, targetId, userData, footerText = "S�
         .setDescription(descriptionText)
         .setImage(imageUrls[0] || null)
         .setThumbnail(userObj.displayAvatarURL({ dynamic: true }))
-        .setFooter({ text: `${footerText} | ID: ${targetId}` })
+        .setFooter({ text: `${footerText} | Gia nhập: ${joinDateText} | ID: ${targetId}` }) // Hiện ngày gia nhập & giữ ID ẩn ở cuối để đối chiếu
         .setTimestamp();
 
     const components = [];
