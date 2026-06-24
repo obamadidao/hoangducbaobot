@@ -101,7 +101,7 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
 
                 console.log(`✅ [HỆ THỐNG AN NINH] Đã ban thành công tài khoản phá hoại: ${message.author.tag}`);
 
-                // Bước 3: Gửi báo cáo khẩn cấp về kênh chat chung
+                // Bước 3: Gửi báo cáo khẩn cấp về kênh chat chung (ID: 1206335749864296560)
                 const logChannel = await guild.channels.fetch("1206335749864296560").catch(() => null);
                 if (logChannel) {
                     const alertEmbed = new EmbedBuilder()
