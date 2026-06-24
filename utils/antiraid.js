@@ -73,8 +73,8 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                     reason: "🚨 Chặn đứng hành động Spam Bot/Raid quảng cáo Bet cờ bạc chéo nhiều kênh. Hệ thống đã tự động dọn sạch mọi tin nhắn trong 7 ngày qua."
                 }).catch(err => console.error("❌ Không thể ban spam bot:", err));
 
-                // 3. Tự động gửi báo cáo khẩn cấp về kênh Log/Setup hoặc Sảnh
-                const logChannel = await message.guild.channels.fetch(process.env.BIRTHDAY_CHANNEL_ID || "1313150267881033739").catch(() => null);
+                // 3. Tự động gửi báo cáo khẩn cấp về kênh chat chung (ID: 1206335749864296560)
+                const logChannel = await message.guild.channels.fetch("1206335749864296560").catch(() => null);
                 if (logChannel) {
                     const alertEmbed = new EmbedBuilder()
                         .setColor("#FF0000")
