@@ -1,12 +1,13 @@
 const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
 
-// CẤU HÌNH THEO DÕI AN NINH SPAM CHÉO KÊNH
+// CẤU HÌNH THEO DÕI AN NINH
 const crossChannelSpamTracker = new Map();
-const SPAM_WINDOW_MS = 5000;         // Khung thời gian rà soát dưới 5 giây
-const SPAM_CHANNEL_THRESHOLD = 3;   // Số kênh khác nhau bị spam cùng nội dung để kích hoạt BAN
+const SPAM_WINDOW_MS = 10000;         // Đã nới lỏng lên 10 giây (10000ms) để dễ thao tác bằng tay khi test
+const SPAM_CROSS_CHANNEL_THRESHOLD = 3; // Điều kiện 1: Số kênh khác nhau bị spam
+const SPAM_SAME_CHANNEL_THRESHOLD = 5;  // Điều kiện 2: Số tin nhắn spam liên tục trong cùng 1 kênh
 
 /**
- * Hàm phân tích và chặn đứng hành vi Spam/Raid phá hoại chéo kênh
+ * Hàm phân tích và chặn đứng hành vi Spam/Raid phá hoại chéo kênh và cùng kênh
  * @param {import("discord.js").Message} message 
  * @param {import("discord.js").Client} client 
  * @param {string} HOANG_DE_ROLE_ID 
@@ -28,14 +29,14 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
     const attachSig = message.attachments.map(a => a.name + "_" + a.size).join(",");
     const messageSignature = `${textSig}||${attachSig}`;
 
-    // Chỉ rà soát các tin nhắn có độ dài nội dung thực tế hoặc đính kèm ảnh bet/link cờ bạc
+    // Chỉ rà soát các tin nhắn có độ dài nội dung thực tế (> 5 ký tự) hoặc đính kèm ảnh bet/link cờ bạc
     if (messageSignature.length > 5) {
         if (!crossChannelSpamTracker.has(userId)) {
             crossChannelSpamTracker.set(userId, []);
         }
 
         let userRecords = crossChannelSpamTracker.get(userId);
-        // Quét dọn các bản ghi đã quá thời gian 5 giây để giải phóng bộ nhớ RAM
+        // Quét dọn các bản ghi đã quá thời gian 10 giây để giải phóng bộ nhớ RAM
         userRecords = userRecords.filter(rec => now - rec.timestamp < SPAM_WINDOW_MS);
 
         // Đẩy thông tin tin nhắn hiện tại vào bộ đếm
@@ -47,18 +48,28 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
         });
         crossChannelSpamTracker.set(userId, userRecords);
 
-        // Lọc ra các tin nhắn giống hệt chữ ký này gửi đi trong vòng 5 giây
+        // Lọc ra các tin nhắn giống hệt chữ ký này gửi đi trong vòng 10 giây
         const identicalSpams = userRecords.filter(rec => rec.signature === messageSignature);
         
         // Đếm số lượng các kênh chat khác nhau nhận cùng một nội dung tin nhắn này
         const uniqueChannels = new Set(identicalSpams.map(rec => rec.channelId));
 
-        if (uniqueChannels.size >= SPAM_CHANNEL_THRESHOLD) {
-            console.log(`🚨 PHÁT HIỆN RAID: Spam bot ${message.author.tag} (${userId}) phát tán chéo ${uniqueChannels.size} kênh.`);
+        // PHÂN TÍCH ĐIỀU KIỆN BAN
+        const isCrossChannelSpam = uniqueChannels.size >= SPAM_CROSS_CHANNEL_THRESHOLD;
+        const isSameChannelSpam = identicalSpams.length >= SPAM_SAME_CHANNEL_THRESHOLD;
+
+        if (isCrossChannelSpam || isSameChannelSpam) {
+            const spamTypeStr = isCrossChannelSpam 
+                ? `phát tán chéo ${uniqueChannels.size} kênh` 
+                : `spam liên tục ${identicalSpams.length} lần vào cùng một kênh`;
+
+            console.log(`🚨 PHÁT HIỆN RAID: ${message.author.tag} (${userId}) ${spamTypeStr}.`);
 
             const memberToBan = message.member || await message.guild.members.fetch(userId).catch(() => null);
+            
+            // KIỂM TRA QUYỀN HẠN CỦA BOT TRƯỚC KHI BAN
             if (memberToBan && memberToBan.bannable) {
-                // 1. Tự động xóa (delete) nhanh các tin nhắn spam chéo vừa ghi nhận trong 5 giây qua để sảnh chat sạch ngay lập tức
+                // 1. Tự động xóa (delete) nhanh các tin nhắn spam chéo vừa ghi nhận
                 for (const rec of identicalSpams) {
                     const targetChan = await message.guild.channels.fetch(rec.channelId).catch(() => null);
                     if (targetChan && targetChan.isTextBased()) {
@@ -67,13 +78,13 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                     }
                 }
 
-                // 2. Thực hiện BAN vĩnh viễn nick spam khỏi Server và xóa SẠCH TOÀN BỘ TIN NHẮN trong vòng 7 ngày qua của tài khoản này
+                // 2. Thực hiện BAN vĩnh viễn và xóa sạch tin trong 7 ngày
                 await memberToBan.ban({
-                    deleteMessageSeconds: 7 * 24 * 60 * 60, // Tối ưu hóa lên 7 ngày (604800s) - Mức tối đa của Discord để dọn sạch mọi dấu vết
-                    reason: "🚨 Chặn đứng hành động Spam Bot/Raid quảng cáo Bet cờ bạc chéo nhiều kênh. Hệ thống đã tự động dọn sạch mọi tin nhắn trong 7 ngày qua."
+                    deleteMessageSeconds: 7 * 24 * 60 * 60,
+                    reason: `🚨 Chặn đứng hành động Spam Bot/Raid (${spamTypeStr}).`
                 }).catch(err => console.error("❌ Không thể ban spam bot:", err));
 
-                // 3. Tự động gửi báo cáo khẩn cấp về kênh chat chung (ID: 1206335749864296560)
+                // 3. Tự động gửi báo cáo khẩn cấp về kênh chat chung
                 const logChannel = await message.guild.channels.fetch("1206335749864296560").catch(() => null);
                 if (logChannel) {
                     const alertEmbed = new EmbedBuilder()
@@ -82,7 +93,7 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                         .setDescription(`Đã kích hoạt chế độ tự vệ khẩn cấp, chặn đứng cuộc tấn công Spam/Raid của tài khoản phá hoại.`)
                         .addFields(
                             { name: "👤 Tài khoản phá hoại:", value: `<@${userId}> | **${message.author.tag}**\n(ID: \`${userId}\`)` },
-                            { name: "📊 Kênh bị tấn công:", value: `Phát tán đồng thời trên **${uniqueChannels.size} kênh** trong vòng 5 giây.` },
+                            { name: "📊 Hành vi bị bắt quả tang:", value: `Phát hiện **${spamTypeStr}** trong thời gian ngắn.` },
                             { name: "🧹 Trạng thái dọn dẹp:", value: `Đã tự động xóa sạch **100% tin nhắn** của tài khoản này gửi ở tất cả các kênh trong vòng **7 ngày qua**.` },
                             { name: "📝 Nội dung bị chặn đứng:", value: `\`\`\`${message.content ? message.content.slice(0, 500) : "[Tập tin hình ảnh quảng cáo]"}\`\`\`` }
                         )
@@ -91,9 +102,12 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                     await logChannel.send({ embeds: [alertEmbed] }).catch(() => null);
                 }
 
-                // Giải phóng dọn dẹp bộ nhớ theo dõi của nick bị ban
                 crossChannelSpamTracker.delete(userId);
                 return true;
+            } else {
+                // IN CẢNH BÁO BẤT LỰC RA CONSOLE (LOG RAILWAY) NẾU BOT THIẾU QUYỀN
+                console.log(`⚠️ BẤT LỰC: Đã phát hiện ${message.author.tag} spam nhưng Bot KHÔNG THỂ BAN.`);
+                console.log(`👉 Lý do: Role của Bot nằm DƯỚI role của người này, hoặc tài khoản này là Chủ Server.`);
             }
         }
     }
