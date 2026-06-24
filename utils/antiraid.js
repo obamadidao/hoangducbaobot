@@ -101,8 +101,8 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
 
                 console.log(`✅ [HỆ THỐNG AN NINH] Đã ban thành công tài khoản phá hoại: ${message.author.tag}`);
 
-                // Bước 3: Gửi báo cáo khẩn cấp về kênh chat chung (ID: 1206335749864296560)
-                const logChannel = await guild.channels.fetch("1206335749864296560").catch(() => null);
+                // Bước 3: Gửi báo cáo khẩn cấp chi tiết về kênh hiển thị thông báo ban (ID: 1206506495076732929)
+                const logChannel = await guild.channels.fetch("1206506495076732929").catch(() => null);
                 if (logChannel) {
                     const alertEmbed = new EmbedBuilder()
                         .setColor("#FF0000")
@@ -117,6 +117,14 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                         .setFooter({ text: "Hệ thống bảo vệ an ninh tự động" })
                         .setTimestamp();
                     await logChannel.send({ embeds: [alertEmbed] }).catch(() => null);
+                }
+
+                // Bước 4: Gửi một thông báo nhỏ gọn cảnh báo ra kênh chat chung (ID: 1206335749864296560)
+                const generalChatChannel = await guild.channels.fetch("1206335749864296560").catch(() => null);
+                if (generalChatChannel) {
+                    await generalChatChannel.send({
+                        content: `🚨 **Thông báo an ninh:** Tài khoản **${message.author.tag}** (<@${userId}>) đã bị cấm (BAN) khỏi Server và dọn dẹp tin nhắn do phát hiện hành vi spam phá hoại!`
+                    }).catch(() => null);
                 }
 
                 crossChannelSpamTracker.delete(userId);
