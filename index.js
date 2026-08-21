@@ -368,7 +368,33 @@ client.once("ready", async () => {
         }
     });
 });
+// ==========================================
+// THÔNG BÁO CHÀO MỪNG THÀNH VIÊN MỚI
+// ==========================================
+client.on('guildMemberAdd', async (member) => {
+    // ID kênh chat chung và ID role Lễ Tân của bạn
+    const welcomeChannelId = '1206335749864296560';
+    const leTanRoleId = '1249680517591203880';
 
+    // Tìm kênh chat chung
+    const channel = member.guild.channels.cache.get(welcomeChannelId);
+    if (!channel) return; // Nếu không tìm thấy kênh thì bỏ qua
+
+    // Tạo hộp thoại (Embed) bên dưới
+    const welcomeEmbed = new EmbedBuilder()
+        .setColor('#2b2d31') // Bạn có thể đổi màu tùy thích (ví dụ: '#ffb6c1' cho màu hồng)
+        .setDescription(`Chào mừng bạn mới đã đến với server Hội Bàn Vuông của chúng mình :3\nMọi người chào <@${member.id}> đi này!!`);
+
+    // Gửi ra kênh chat
+    try {
+        await channel.send({
+            content: `Ô có một thành viên mới nè <@&${leTanRoleId}>`,
+            embeds: [welcomeEmbed]
+        });
+    } catch (error) {
+        console.error("❌ Lỗi khi gửi tin nhắn chào mừng:", error);
+    }
+});
 client.on("messageCreate", async (message) => {
     if (message.author.bot || !message.guild) return;
 
@@ -1191,10 +1217,14 @@ client.on("interactionCreate", async interaction => {
             const { customId, guild, message, user } = interaction;
             
             // Xử lý nút lật album ảnh (Slide Show)
+            // Xử lý nút lật album ảnh (Slide Show)
             if (customId.startsWith("slide_")) {
                 const parts = customId.split("_");
                 const targetId = parts[1];
-                const newIndex = parseInt(parts[2], 10);
+                
+                // Lấy index hiện tại và hướng lật từ Custom ID
+                const currentIndex = parseInt(parts[2], 10);
+                const direction = parts[3];
 
                 const data = loadData();
                 const userData = data[targetId];
@@ -1203,16 +1233,27 @@ client.on("interactionCreate", async interaction => {
                 const imageUrls = userData.images || (userData.image ? [userData.image] : []) || [];
                 const total = imageUrls.length;
 
+                if (total === 0) return interaction.reply({ content: "❌ Không có ảnh nào để hiển thị.", flags: ['Ephemeral'] });
+
+                // Tính toán vị trí ảnh tiếp theo dựa trên hướng bấm (prev/next)
+                let newIndex = currentIndex;
+                if (direction === "next") {
+                    newIndex = (currentIndex + 1) % total;
+                } else if (direction === "prev") {
+                    newIndex = (currentIndex - 1 + total) % total;
+                }
+
                 const profileEmbed = EmbedBuilder.from(message.embeds[0]);
                 profileEmbed.setImage(imageUrls[newIndex] || null);
 
+                // Tính toán ID cho các nút bấm tiếp theo
                 const nextIdx = (newIndex + 1) % total;
                 const prevIdx = (newIndex - 1 + total) % total;
 
                 const newRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`slide_${targetId}_${prevIdx}_prev`).setLabel('<<').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId(`slide_${targetId}_${newIndex}_prev`).setLabel('<<').setStyle(ButtonStyle.Secondary),
                     new ButtonBuilder().setCustomId('dummy').setLabel(`${newIndex + 1}/${total}`).setStyle(ButtonStyle.Secondary).setDisabled(true),
-                    new ButtonBuilder().setCustomId(`slide_${targetId}_${nextIdx}_next`).setLabel('>>').setStyle(ButtonStyle.Secondary)
+                    new ButtonBuilder().setCustomId(`slide_${targetId}_${newIndex}_next`).setLabel('>>').setStyle(ButtonStyle.Secondary)
                 );
 
                 await interaction.update({ embeds: [profileEmbed], components: [newRow] });
