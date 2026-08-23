@@ -374,7 +374,7 @@ client.once("ready", async () => {
 client.on('guildMemberAdd', async (member) => {
     // ID kênh chat chung và ID role Lễ Tân của bạn
     const welcomeChannelId = '1206335749864296560';
-    const leTanRoleId = '1249680517591203880';
+    const leTanRoleId = '1207064301957947443';
 
     // Tìm kênh chat chung
     const channel = member.guild.channels.cache.get(welcomeChannelId);
