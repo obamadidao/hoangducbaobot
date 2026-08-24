@@ -371,30 +371,30 @@ client.once("ready", async () => {
 // ==========================================
 // THÔNG BÁO CHÀO MỪNG THÀNH VIÊN MỚI
 // ==========================================
-client.on('guildMemberAdd', async (member) => {
-    // ID kênh chat chung và ID role Lễ Tân của bạn
-    const welcomeChannelId = '1206335749864296560';
-    const leTanRoleId = '1207064301957947443';
+// client.on('guildMemberAdd', async (member) => {
+//     // ID kênh chat chung và ID role Lễ Tân của bạn
+//     const welcomeChannelId = '1206335749864296560';
+//     const leTanRoleId = '1207064301957947443';
 
-    // Tìm kênh chat chung
-    const channel = member.guild.channels.cache.get(welcomeChannelId);
-    if (!channel) return; // Nếu không tìm thấy kênh thì bỏ qua
+//     // Tìm kênh chat chung
+//     const channel = member.guild.channels.cache.get(welcomeChannelId);
+//     if (!channel) return; // Nếu không tìm thấy kênh thì bỏ qua
 
-    // Tạo hộp thoại (Embed) bên dưới
-    const welcomeEmbed = new EmbedBuilder()
-        .setColor('#2b2d31') // Bạn có thể đổi màu tùy thích (ví dụ: '#ffb6c1' cho màu hồng)
-        .setDescription(`Chào mừng bạn mới đã đến với server Hội Bàn Vuông của chúng mình :3\nMọi người chào <@${member.id}> đi này!!`);
+//     // Tạo hộp thoại (Embed) bên dưới
+//     const welcomeEmbed = new EmbedBuilder()
+//         .setColor('#2b2d31') // Bạn có thể đổi màu tùy thích (ví dụ: '#ffb6c1' cho màu hồng)
+//         .setDescription(`Chào mừng bạn mới đã đến với server Hội Bàn Vuông của chúng mình :3\nMọi người chào <@${member.id}> đi này!!`);
 
-    // Gửi ra kênh chat
-    try {
-        await channel.send({
-            content: `Ô có một thành viên mới nè <@&${leTanRoleId}>`,
-            embeds: [welcomeEmbed]
-        });
-    } catch (error) {
-        console.error("❌ Lỗi khi gửi tin nhắn chào mừng:", error);
-    }
-});
+//     // Gửi ra kênh chat
+//     try {
+//         await channel.send({
+//             content: `Ô có một thành viên mới nè <@&${leTanRoleId}>`,
+//             embeds: [welcomeEmbed]
+//         });
+//     } catch (error) {
+//         console.error("❌ Lỗi khi gửi tin nhắn chào mừng:", error);
+//     }
+// });
 client.on("messageCreate", async (message) => {
     if (message.author.bot || !message.guild) return;
 
