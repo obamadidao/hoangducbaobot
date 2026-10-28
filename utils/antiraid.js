@@ -1,4 +1,5 @@
 const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
+const path = require("path");
 
 const crossChannelSpamTracker = new Map();
 const currentlyBanning = new Set();
@@ -6,12 +7,11 @@ const SPAM_WINDOW_MS = 10000;           // Khung thời gian 10 giây
 const SPAM_CROSS_CHANNEL_THRESHOLD = 3; // Spam 3 kênh khác nhau
 const SPAM_SAME_CHANNEL_THRESHOLD = 5;  // Spam 5 lần cùng 1 kênh
 
-// Tối ưu thông minh: Khử sạch ID thô thành Tên hiển thị rõ ràng
+// Tự động chuyển ID thô thành Tên hiển thị rõ ràng
 async function cleanMentionText(guild, text) {
     if (!text) return "[Chỉ gửi tệp đính kèm / hình ảnh]";
     let cleaned = text;
 
-    // Chuyển <@ID> -> @TênUser
     const userMatches = text.match(/<@!?(\d+)>/g);
     if (userMatches) {
         for (const match of userMatches) {
@@ -21,7 +21,6 @@ async function cleanMentionText(guild, text) {
         }
     }
 
-    // Chuyển <@&ID> -> @TênRole
     const roleMatches = text.match(/<@&(\d+)>/g);
     if (roleMatches) {
         for (const match of roleMatches) {
@@ -31,7 +30,6 @@ async function cleanMentionText(guild, text) {
         }
     }
 
-    // Chuyển <#ID> -> #TênKênh
     const channelMatches = text.match(/<#(\d+)>/g);
     if (channelMatches) {
         for (const match of channelMatches) {
@@ -64,7 +62,6 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
     const attachSig = message.attachments.map(a => a.name + "_" + a.size).join(",");
     const messageSignature = `${textSig}||${attachSig}`;
 
-    // Kiểm tra An ninh Nâng cao: Link Invite & Mass Mention
     const containsDiscordInvite = /(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/[a-zA-Z0-9]+/i.test(textSig);
     const isMassMention = message.mentions.everyone || (message.mentions.users.size + message.mentions.roles.size) >= 5;
 
@@ -98,7 +95,7 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
         if (isCrossChannelSpam) spamReason = `Spam chéo ${uniqueChannels.size} kênh`;
         else if (isSameChannelSpam) spamReason = `Spam ${identicalSpams.length} lần liên tục`;
         else if (isIllegalInvite) spamReason = `Quảng cáo Link Server khác`;
-        else if (isMassMention) spamReason = `Spam Tag đại массо (@everyone/roles)`;
+        else if (isMassMention) spamReason = `Spam Tag đại trà (@everyone/roles)`;
 
         const memberToBan = message.member || await guild.members.fetch(userId).catch(() => null);
 
@@ -113,7 +110,7 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                     }
                 }
 
-                // Ban và dọn sạch lịch sử 7 ngày
+                // Ban vĩnh viễn và dọn sạch 7 ngày
                 await memberToBan.ban({
                     deleteMessageSeconds: 7 * 24 * 60 * 60,
                     reason: `🛡️ AntiRaid: ${spamReason}`
@@ -122,7 +119,7 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                 const cleanedContent = await cleanMentionText(guild, message.content);
                 const spamImage = message.attachments.first()?.url || null;
 
-                // 1. Log Chi Tiết Siêu Gọn Cho Kênh Admin (1206506495076732929)
+                // 1. Log Admin (1206506495076732929)
                 const logChannel = await guild.channels.fetch("1206506495076732929").catch(() => null);
                 if (logChannel) {
                     const alertEmbed = new EmbedBuilder()
@@ -142,11 +139,21 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                     await logChannel.send({ embeds: [alertEmbed] }).catch(() => null);
                 }
 
-                // 2. Cảnh báo 1 dòng cực gọn ra Chat Chung (1206335749864296560)
+                // 2. Chat Chung (1206335749864296560) - Đọc từ thư mục assets/images/
                 const generalChatChannel = await guild.channels.fetch("1206335749864296560").catch(() => null);
                 if (generalChatChannel) {
+                    const bonkImagePath = path.join(__dirname, "..", "assets", "images", "bonk.png");
+
+                    const bonkEmbed = new EmbedBuilder()
+                        .setColor("#ED4245")
+                        .setTitle("🔨 Ô BỚT BƯỚNG LẠI XEM NÀO!")
+                        .setDescription(`Ô quá bướng!! Thầy ở đây mà dám spam à **<@${userId}>** (${message.author.tag}).\nĂn ngay 1 chày vào mặt này! 💥\n\n📌 **Hành vi vi phạm:** *${spamReason}*`)
+                        .setImage("attachment://bonk.png")
+                        .setTimestamp();
+
                     await generalChatChannel.send({
-                        content: `🚨 **Hệ thống An ninh:** Đã BAN **${message.author.tag}** (<@${userId}>) do vi phạm: *${spamReason}*.`
+                        embeds: [bonkEmbed],
+                        files: [{ attachment: bonkImagePath, name: "bonk.png" }]
                     }).catch(() => null);
                 }
 
