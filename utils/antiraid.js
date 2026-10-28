@@ -146,8 +146,8 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
 
                     const bonkEmbed = new EmbedBuilder()
                         .setColor("#ED4245")
-                        .setTitle("🔨 Ô BỚT BƯỚNG LẠI XEM NÀO!")
-                        .setDescription(`Ô quá bướng!! Thầy ở đây mà dám spam à **<@${userId}>** (${message.author.tag}).\nĂn ngay 1 chày vào mặt này! 💥\n\n📌 **Hành vi vi phạm:** *${spamReason}*`)
+                        .setTitle("NGÔNG CUỒNG?")
+                        .setDescription(`Quá bướng!! Thầy ở đây mà dám làm loạn à **<@${interaction.user.id}>** (${interaction.user.tag}).\nPhệt ngay 1 chày vào mặt! 💥\n\n📌 **Cái tội** *Spam*`)
                         .setImage("attachment://bonk.png")
                         .setTimestamp();
 
