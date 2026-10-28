@@ -92,10 +92,10 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
         currentlyBanning.add(userId);
 
         let spamReason = "Spam tin nhắn";
-        if (isCrossChannelSpam) spamReason = `Spam chéo ${uniqueChannels.size} kênh`;
+        if (isCrossChannelSpam) spamReason = `Spam nhiều ${uniqueChannels.size} kênh`;
         else if (isSameChannelSpam) spamReason = `Spam ${identicalSpams.length} lần liên tục`;
-        else if (isIllegalInvite) spamReason = `Quảng cáo Link Server khác`;
-        else if (isMassMention) spamReason = `Spam Tag đại trà (@everyone/roles)`;
+        else if (isIllegalInvite) spamReason = `Gửi Link Server khác`;
+        else if (isMassMention) spamReason = `Spam Tag (@everyone/roles)`;
 
         const memberToBan = message.member || await guild.members.fetch(userId).catch(() => null);
 
@@ -139,21 +139,21 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
                     await logChannel.send({ embeds: [alertEmbed] }).catch(() => null);
                 }
 
-                // 2. Chat Chung (1206335749864296560) - Đọc từ thư mục assets/images/
+                // 2. Chat Chung (1206335749864296560) - Đọc từ thư mục assets/images/bonk.gif
                 const generalChatChannel = await guild.channels.fetch("1206335749864296560").catch(() => null);
                 if (generalChatChannel) {
-                    const bonkImagePath = path.join(__dirname, "..", "assets", "images", "bonk.png");
+                    const bonkGifPath = path.join(__dirname, "..", "assets", "images", "bonk.gif");
 
                     const bonkEmbed = new EmbedBuilder()
                         .setColor("#ED4245")
                         .setTitle("NGÔNG CUỒNG?")
-                        .setDescription(`Quá bướng!! Thầy ở đây mà dám làm loạn à **<@${interaction.user.id}>** (${interaction.user.tag}).\nPhệt ngay 1 chày vào mặt! 💥\n\n📌 **Cái tội** *Spam*`)
-                        .setImage("attachment://bonk.png")
+                        .setDescription(`Quá bướng!! Thầy ở đây mà dám làm loạn à **<@${userId}>** (${message.author.tag}).\nPhệt ngay 1 chày vào mặt! 💥\n\n📌 **Cái tội:** *${spamReason}*`)
+                        .setImage("attachment://bonk.gif")
                         .setTimestamp();
 
                     await generalChatChannel.send({
                         embeds: [bonkEmbed],
-                        files: [{ attachment: bonkImagePath, name: "bonk.png" }]
+                        files: [{ attachment: bonkGifPath, name: "bonk.gif" }]
                     }).catch(() => null);
                 }
 

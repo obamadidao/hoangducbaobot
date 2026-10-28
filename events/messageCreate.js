@@ -32,7 +32,6 @@ module.exports = {
             const oldMsg = await message.channel.messages.fetch(channelSticky.lastMessageId).catch(() => null);
             if (oldMsg) await oldMsg.delete().catch(() => null);
         }
-
         try {
             const newMsg = await message.channel.send({ embeds: [stickyEmbed] });
             stickyData[message.channel.id].lastMessageId = newMsg.id;

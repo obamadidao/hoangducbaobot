@@ -4,21 +4,22 @@ const path = require("path");
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("testbonk")
-        .setDescription("Test hiển thị thông báo Anti-Raid kèm ảnh Bonk")
+        .setDescription("Test hiển thị thông báo Anti-Raid kèm GIF Mega Bonk")
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     async execute(interaction) {
-        const bonkImagePath = path.join(__dirname, "..", "assets", "images", "bonk.png");
+        // Trỏ đường dẫn tới file assets/images/bonk.gif
+        const bonkGifPath = path.join(__dirname, "..", "assets", "images", "bonk.gif");
 
         const bonkEmbed = new EmbedBuilder()
             .setColor("#ED4245")
             .setTitle("NGÔNG CUỒNG?")
-            .setDescription(`Quá bướng!! Thầy ở đây mà dám spam à **<@${interaction.user.id}>** (${interaction.user.tag}).\nPhệt ngay 1 chày vào mặt! 💥\n\n📌 **Cái tội** *Spam*`)
-            .setImage("attachment://bonk.png")
+            .setDescription(`Quá bướng!! Thầy ở đây mà dám làm loạn à **<@${userId}>** (${message.author.tag}).\nPhệt ngay 1 chày vào mặt! 💥\n\n📌 **Cái tội:** *${spamReason}*`)
+            .setImage("attachment://bonk.gif")
             .setTimestamp();
 
         await interaction.reply({
             embeds: [bonkEmbed],
-            files: [{ attachment: bonkImagePath, name: "bonk.png" }]
+            files: [{ attachment: bonkGifPath, name: "bonk.gif" }]
         });
     }
 };
