@@ -1,29 +1,52 @@
 require("dotenv").config();
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { REST, Routes } = require("discord.js");
+const fs = require("fs");
+const path = require("path");
 
-const commands = [
-    new SlashCommandBuilder()
-        .setName("taoprofile")
-        .setDescription("Tạo hồ sơ cá nhân (Tải ảnh trước, điền thông tin ở Popup sau)")
-        // Chỉ giữ lại duy nhất các tùy chọn tải file ảnh
-        .addAttachmentOption(o => o.setName("anh1").setDescription("Ảnh số 1 (Bắt buộc)").setRequired(true))
-        .addAttachmentOption(o => o.setName("anh2").setDescription("Ảnh số 2 (Tùy chọn)").setRequired(false))
-        .addAttachmentOption(o => o.setName("anh3").setDescription("Ảnh số 3 (Tùy chọn)").setRequired(false))
-        .addAttachmentOption(o => o.setName("anh4").setDescription("Ảnh số 4 (Tùy chọn)").setRequired(false))
-].map(cmd => cmd.toJSON());
+const commands = [];
+const commandsPath = path.join(__dirname, "commands");
+
+if (fs.existsSync(commandsPath)) {
+    const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
+
+    for (const file of commandFiles) {
+        const filePath = path.join(commandsPath, file);
+        delete require.cache[require.resolve(filePath)];
+        const command = require(filePath);
+
+        if (command.data) {
+            const commandData = typeof command.data.toJSON === "function" ? command.data.toJSON() : command.data;
+            commands.push(commandData);
+            console.log(`📌 Đã đọc lệnh: /${commandData.name}`);
+        }
+    }
+}
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
 (async () => {
     try {
-        console.log("Đang đồng bộ giao diện lệnh /taoprofile (Chỉ giữ lại ô up ảnh)...");
-        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] });
-        await rest.put(
-            Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+        const clientId = process.env.CLIENT_ID;
+        const guildId = process.env.GUILD_ID;
+
+        if (!clientId || !guildId) {
+            console.error("❌ THIẾU CLIENT_ID HOẶC GUILD_ID TRONG FILE .ENV!");
+            return;
+        }
+
+        console.log(`⏳ Đang tiến hành đồng bộ ${commands.length} lệnh lên Discord Server...`);
+
+        // Xóa cache cũ
+        await rest.put(Routes.applicationCommands(clientId), { body: [] }).catch(() => null);
+
+        // Đẩy danh sách lệnh mới nhất
+        const result = await rest.put(
+            Routes.applicationGuildCommands(clientId, guildId),
             { body: commands }
         );
-        console.log("✅ Đã cập nhật thành công! Thanh gõ lệnh bây giờ chỉ còn đúng chỗ up ảnh.");
+
+        console.log(`✅ ĐÃ ĐỒNG BỘ THÀNH CÔNG ${result.length} LỆNH LÊN SERVER DISCORD!`);
     } catch (err) {
-        console.error("Lỗi:", err);
+        console.error("❌ Lỗi khi đăng ký lệnh:", err);
     }
 })();
