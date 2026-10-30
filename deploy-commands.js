@@ -10,9 +10,7 @@ if (fs.existsSync(commandsPath)) {
     const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith(".js"));
 
     for (const file of commandFiles) {
-        const filePath = path.join(commandsPath, file);
-        delete require.cache[require.resolve(filePath)];
-        const command = require(filePath);
+        const command = require(path.join(commandsPath, file));
 
         if (command.data) {
             const commandData = typeof command.data.toJSON === "function" ? command.data.toJSON() : command.data;
@@ -36,10 +34,7 @@ const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
         console.log(`⏳ Đang tiến hành đồng bộ ${commands.length} lệnh lên Discord Server...`);
 
-        // Xóa cache cũ
-        await rest.put(Routes.applicationCommands(clientId), { body: [] }).catch(() => null);
-
-        // Đẩy danh sách lệnh mới nhất
+        // Đẩy thẳng danh sách lệnh mới nhất vào Server (Guild)
         const result = await rest.put(
             Routes.applicationGuildCommands(clientId, guildId),
             { body: commands }
