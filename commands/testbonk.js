@@ -12,7 +12,7 @@ module.exports = {
         const bonkEmbed = new EmbedBuilder()
             .setColor("#ED4245")
             .setTitle("NGÔNG CUỒNG?")
-            .setDescription(`Quá bướng!! Thầy ở đây mà dám làm loạn à **<@${interaction.user.id}>** (${interaction.user.tag}).\nPhệt ngay 1 chày vào mặt! 💥\n\n📌 **Cái tội:** *Spam 5 lần liên tục (MẪU TEST)*`)
+            .setDescription(`Quá bướng!! Thầy ở đây mà dám làm loạn à **<@${interaction.user.id}>** (${interaction.user.tag}).\nPhệt ngay 1 chày vào mặt! 💥\n\n🫵 **Cái tội:** *Spam 5 lần liên tục (MẪU TEST)*`)
             .setImage("attachment://bonk.gif")
             .setTimestamp();
 
