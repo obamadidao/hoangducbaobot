@@ -43,12 +43,20 @@ module.exports = {
             if (interaction.isChatInputCommand()) {
                 const { commandName, channelId, member, user } = interaction;
 
+                // Danh sách các lệnh được xử lý Router trực tiếp tại file này
+                const routerCommands = [
+                    "birthdays", "taoprofile", "taohoprofile", "suaprofile", "suaanh", "xoaprofile",
+                    "taosukien", "danhsachsukien", "suasukien", "xoasukien", "sticky", "unsticky"
+                ];
+
                 const command = client.commands.get(commandName);
-                if (command) {
+
+                // CHỈ CHẠY FILE LỆNH NẾU LỆNH ĐÓ KHÔNG NẰM TRONG DANH SÁCH ROUTER PROFILE/EVENT
+                if (command && !routerCommands.includes(commandName)) {
                     return await command.execute(interaction, client);
                 }
 
-                // Xử lý các lệnh dạng Router chưa tách file riêng
+                // Xử lý kiểm tra kênh cho các lệnh dạng Router
                 const restrictedCommands = [
                     "birthdays", "taoprofile", "taohoprofile", "suaprofile", "suaanh", "xoaprofile",
                     "taosukien", "danhsachsukien", "suasukien", "xoasukien"
