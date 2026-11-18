@@ -158,28 +158,32 @@ module.exports = {
 
                     const titleInput = new TextInputBuilder()
                         .setCustomId("modal_sticky_title")
-                        .setLabel("Tiêu đề ghim (Bỏ trống = 📌 TIN NHẮN GHIM)")
+                        .setLabel("Tiêu đề ghim")
+                        .setPlaceholder("Bỏ trống = 📌 TIN NHẮN GHIM")
                         .setStyle(TextInputStyle.Short)
                         .setRequired(false);
                     if (existing?.title) titleInput.setValue(existing.title.slice(0, 250));
 
                     const contentInput = new TextInputBuilder()
                         .setCustomId("modal_sticky_content")
-                        .setLabel("Nội dung ghim (Hỗ trợ Markdown, xuống dòng)")
+                        .setLabel("Nội dung tin nhắn ghim")
+                        .setPlaceholder("Hỗ trợ Markdown, xuống dòng tự do...")
                         .setStyle(TextInputStyle.Paragraph)
                         .setRequired(true);
                     if (existing?.text) contentInput.setValue(existing.text.slice(0, 4000));
 
                     const colorInput = new TextInputBuilder()
                         .setCustomId("modal_sticky_color")
-                        .setLabel("Màu viền (vang, do, xanh, hong hoặc #Hex)")
+                        .setLabel("Màu viền khung")
+                        .setPlaceholder("vang, do, xanh, hong hoặc mã #Hex")
                         .setStyle(TextInputStyle.Short)
                         .setRequired(false);
                     if (existing?.color) colorInput.setValue(existing.color.slice(0, 20));
 
                     const styleInput = new TextInputBuilder()
                         .setCustomId("modal_sticky_style")
-                        .setLabel("Kiểu hiển thị: 'embed' (khung) hoặc 'text' (chữ)")
+                        .setLabel("Kiểu hiển thị")
+                        .setPlaceholder("Nhập embed (khung) hoặc text (chữ thường)")
                         .setStyle(TextInputStyle.Short)
                         .setRequired(false);
                     if (existing?.style) styleInput.setValue(existing.style);
