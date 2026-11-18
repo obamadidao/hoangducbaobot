@@ -14,6 +14,7 @@ const {
     openEditProfileModal, openPhotoEditorDashboard,
     saveImagesPermanently
 } = require("../utils/profileManager");
+const { bumpStickyMessage, clearStickyState } = require("../utils/stickyManager");
 
 const HOANG_DE_ROLE = "1206317832674086944";
 
@@ -70,8 +71,6 @@ module.exports = {
                     });
                 }
 
-                // CHỈ 6 lệnh dưới đây xử lý trực tiếp tại interactionCreate;
-                // Tất cả các lệnh khác (birthdays, taosukien, suasukien, xoasukien, danhsachsukien, sukien, taohoprofile, birthday, andanh...) sẽ chạy file riêng trong commands/
                 const routerCommands = [
                     "taoprofile", "suaprofile", "suaanh", "xoaprofile", "sticky", "unsticky"
                 ];
@@ -146,22 +145,66 @@ module.exports = {
                     }
                 }
 
+                // ==========================================
+                // LỆNH /STICKY NÂNG CẤP (TỰ ĐIỀN NỘI DUNG CŨ)
+                // ==========================================
                 if (commandName === "sticky") {
-                    const modal = new ModalBuilder().setCustomId("sticky_modal").setTitle("Cấu hình Tin nhắn Ghim Kênh");
-                    modal.addComponents(new ActionRowBuilder().addComponents(
-                        new TextInputBuilder()
-                            .setCustomId("modal_sticky_content")
-                            .setLabel("Nhập nội dung ghim (Xuống dòng tự do)")
-                            .setStyle(TextInputStyle.Paragraph)
-                            .setRequired(true)
-                    ));
+                    const stickyData = loadStickyData();
+                    const existing = stickyData[channelId];
+
+                    const modal = new ModalBuilder()
+                        .setCustomId("sticky_modal")
+                        .setTitle(existing ? "Chỉnh Sửa Tin Nhắn Ghim" : "Tạo Tin Nhắn Ghim Mới");
+
+                    const titleInput = new TextInputBuilder()
+                        .setCustomId("modal_sticky_title")
+                        .setLabel("Tiêu đề ghim (Bỏ trống = 📌 TIN NHẮN GHIM)")
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false);
+                    if (existing?.title) titleInput.setValue(existing.title.slice(0, 250));
+
+                    const contentInput = new TextInputBuilder()
+                        .setCustomId("modal_sticky_content")
+                        .setLabel("Nội dung ghim (Hỗ trợ Markdown, xuống dòng)")
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setRequired(true);
+                    if (existing?.text) contentInput.setValue(existing.text.slice(0, 4000));
+
+                    const colorInput = new TextInputBuilder()
+                        .setCustomId("modal_sticky_color")
+                        .setLabel("Màu viền (vang, do, xanh, hong hoặc #Hex)")
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false);
+                    if (existing?.color) colorInput.setValue(existing.color.slice(0, 20));
+
+                    const styleInput = new TextInputBuilder()
+                        .setCustomId("modal_sticky_style")
+                        .setLabel("Kiểu hiển thị: 'embed' (khung) hoặc 'text' (chữ)")
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(false);
+                    if (existing?.style) styleInput.setValue(existing.style);
+
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(titleInput),
+                        new ActionRowBuilder().addComponents(contentInput),
+                        new ActionRowBuilder().addComponents(colorInput),
+                        new ActionRowBuilder().addComponents(styleInput)
+                    );
+
                     return await interaction.showModal(modal);
                 }
 
+                // ==========================================
+                // LỆNH /UNSTICKY
+                // ==========================================
                 if (commandName === "unsticky") {
                     await interaction.deferReply({ flags: 64 });
+                    clearStickyState(channelId);
+
                     const stickyData = loadStickyData();
-                    if (!stickyData[channelId]) return await interaction.editReply({ content: "❌ Kênh này hiện tại không có tin nhắn dính nào cả." });
+                    if (!stickyData[channelId]) {
+                        return await interaction.editReply({ content: "❌ Kênh này hiện tại không có tin nhắn ghim nào cả." });
+                    }
 
                     if (stickyData[channelId].lastMessageId) {
                         const oldMsg = await interaction.channel.messages.fetch(stickyData[channelId].lastMessageId).catch(() => null);
@@ -169,7 +212,7 @@ module.exports = {
                     }
                     delete stickyData[channelId];
                     saveStickyData(stickyData);
-                    return await interaction.editReply({ content: "✅ Đã gỡ bỏ tính năng tin nhắn dính thành công tại kênh này!" });
+                    return await interaction.editReply({ content: "✅ Đã gỡ bỏ hoàn toàn tin nhắn ghim tại kênh này!" });
                 }
 
                 if (commandName === "taoprofile") {
@@ -202,7 +245,6 @@ module.exports = {
                 const { customId, values, guild } = interaction;
                 const targetId = values[0];
 
-                // 1. Menu Hồ sơ
                 if (customId === "select_edit_profile") return await openEditProfileModal(interaction, targetId);
                 if (customId === "select_edit_photos") return await openPhotoEditorDashboard(interaction, targetId);
 
@@ -243,7 +285,6 @@ module.exports = {
                     return await openPhotoEditorDashboard(interaction, profileOwnerId);
                 }
 
-                // 2. Menu Tra cứu Sinh nhật (/birthday)
                 if (customId === "select_birthday_lookup") {
                     const data = loadData();
                     const userData = data[targetId];
@@ -263,7 +304,6 @@ module.exports = {
                     return await interaction.update({ content: null, embeds: [bdayEmbed], components: [] });
                 }
 
-                // 3. Menu Tra cứu Sự kiện (/sukien)
                 if (customId === "select_event_lookup") {
                     const eventsData = loadEventsData();
                     const ev = eventsData[targetId];
@@ -290,7 +330,6 @@ module.exports = {
                     return await interaction.update({ content: null, embeds: [eventEmbed], components: [] });
                 }
 
-                // 4. Menu Sửa Sự kiện (/suasukien)
                 if (customId === "select_event_edit") {
                     const eventsData = loadEventsData();
                     const ev = eventsData[targetId];
@@ -331,7 +370,6 @@ module.exports = {
                     return await interaction.showModal(modal);
                 }
 
-                // 5. Menu Xóa Sự kiện (/xoasukien)
                 if (customId === "select_event_delete") {
                     const eventsData = loadEventsData();
                     if (!eventsData[targetId]) return await interaction.update({ content: "❌ Sự kiện không tồn tại!", components: [] });
@@ -352,7 +390,6 @@ module.exports = {
             if (interaction.isModalSubmit()) {
                 const { customId, guild, fields } = interaction;
 
-                // 1. Tạo Hồ sơ mới (/taoprofile)
                 if (customId.startsWith("profile_modal_")) {
                     await interaction.deferReply({ flags: 64 });
                     const targetId = customId.replace("profile_modal_", "");
@@ -397,7 +434,6 @@ module.exports = {
                     }
                 }
 
-                // 2. Lưu Chỉnh sửa Hồ sơ (/suaprofile)
                 if (customId.startsWith("edit_profile_modal_")) {
                     await interaction.deferReply({ flags: 64 });
                     const targetId = customId.replace("edit_profile_modal_", "");
@@ -435,7 +471,6 @@ module.exports = {
                     }
                 }
 
-                // 3. Lưu Tạo Sự kiện mới (/taosukien)
                 if (customId === "create_event_modal") {
                     await interaction.deferReply({ flags: 64 });
                     const name = fields.getTextInputValue("modal_sukien_name").trim();
@@ -477,7 +512,6 @@ module.exports = {
                     });
                 }
 
-                // 4. Lưu Chỉnh sửa Sự kiện (/suasukien)
                 if (customId.startsWith("edit_event_modal_")) {
                     await interaction.deferReply({ flags: 64 });
                     const eventId = customId.replace("edit_event_modal_", "");
@@ -513,34 +547,42 @@ module.exports = {
                     });
                 }
 
-                // 5. Tin nhắn Ghim (/sticky)
+                // ==========================================
+                // LƯU STICKY MODAL & ĐẨY XUỐNG ĐÁY NGAY
+                // ==========================================
                 if (customId === "sticky_modal") {
                     await interaction.deferReply({ flags: 64 });
-                    const text = fields.getTextInputValue("modal_sticky_content");
+
+                    const title = fields.getTextInputValue("modal_sticky_title").trim() || "📌 TIN NHẮN GHIM";
+                    const text = fields.getTextInputValue("modal_sticky_content").trim();
+                    const color = fields.getTextInputValue("modal_sticky_color").trim() || "#F1C40F";
+                    const rawStyle = fields.getTextInputValue("modal_sticky_style").trim().toLowerCase();
+                    const style = rawStyle === "text" ? "text" : "embed";
+
+                    clearStickyState(interaction.channelId);
+
                     const stickyData = loadStickyData();
+                    const oldMessageId = stickyData[interaction.channelId]?.lastMessageId || null;
 
-                    stickyData[interaction.channelId] = {
-                        text,
-                        lastMessageId: stickyData[interaction.channelId]?.lastMessageId || null
-                    };
-                    saveStickyData(stickyData);
-
-                    const stickyEmbed = new EmbedBuilder()
-                        .setColor("#F1C40F")
-                        .setTitle("📌 Tin nhắn ghim:")
-                        .setDescription(text)
-                        .setTimestamp();
-
-                    if (stickyData[interaction.channelId].lastMessageId) {
-                        const oldMsg = await interaction.channel.messages.fetch(stickyData[interaction.channelId].lastMessageId).catch(() => null);
+                    if (oldMessageId) {
+                        const oldMsg = await interaction.channel.messages.fetch(oldMessageId).catch(() => null);
                         if (oldMsg) await oldMsg.delete().catch(() => null);
                     }
 
-                    const newMsg = await interaction.channel.send({ embeds: [stickyEmbed] });
-                    stickyData[interaction.channelId].lastMessageId = newMsg.id;
+                    stickyData[interaction.channelId] = {
+                        title,
+                        text,
+                        color,
+                        style,
+                        lastMessageId: null
+                    };
                     saveStickyData(stickyData);
 
-                    return await interaction.editReply({ content: "✅ Đã thiết lập tin nhắn dính thành công cho kênh này!" });
+                    await bumpStickyMessage(interaction.channel, client);
+
+                    return await interaction.editReply({
+                        content: `✅ **Đã cập nhật tin nhắn ghim thông minh!**\n• **Kiểu:** \`${style.toUpperCase()}\`\n• **Trạng thái:** Luôn tự động giữ ở vị trí dưới cùng của kênh.`
+                    });
                 }
             }
 

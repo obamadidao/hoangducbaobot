@@ -2,6 +2,7 @@ const { REST, Routes } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
 const { syncAllProfiles } = require("../utils/profileManager");
+const { syncAllStickies } = require("../utils/stickyManager");
 const { initCronJobs } = require("../utils/cronJobs");
 
 module.exports = {
@@ -50,7 +51,15 @@ module.exports = {
             console.error("❌ Lỗi đồng bộ ảnh lúc khởi động:", err);
         }
 
-        // --- 3. KHỞI CHẠY CRON JOBS ---
+        // --- 3. ĐỒNG BỘ TIN NHẮN GHIM (STICKY) XUỐNG ĐÁY KÊNH ---
+        try {
+            await syncAllStickies(client);
+            console.log("✅ Hoàn tất đồng bộ tin nhắn ghim!");
+        } catch (err) {
+            console.error("❌ Lỗi đồng bộ tin nhắn ghim:", err);
+        }
+
+        // --- 4. KHỞI CHẠY CRON JOBS ---
         initCronJobs(client);
     }
 };
