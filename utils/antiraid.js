@@ -12,10 +12,13 @@ const GENERAL_CHAT_CHANNEL_ID = "1206335749864296560";  // Kênh chat chung
 
 const crossChannelSpamTracker = new Map();
 const currentlyBanning = new Set();
-const SPAM_WINDOW_MS = 10000;           // Khung thời gian 10 giây
-const SPAM_CROSS_CHANNEL_THRESHOLD = 3; // Spam 3 kênh khác nhau
-const SPAM_SAME_CHANNEL_THRESHOLD = 5;  // Spam 5 lần cùng 1 kênh
-const CLEANUP_WINDOW_MS = 10 * 60 * 1000; // Quét xóa tin nhắn 10 phút gần nhất
+
+const SPAM_WINDOW_MS = 10000;              // Khung thời gian theo dõi 10 giây
+const SPAM_CROSS_CHANNEL_THRESHOLD = 3;    // Spam nội dung giống nhau ở 3 kênh khác nhau
+const SPAM_SAME_CHANNEL_THRESHOLD = 5;     // Spam nội dung giống nhau 5 lần cùng 1 kênh
+const SINGLE_MSG_MENTION_THRESHOLD = 12;   // Tối đa 12 tag trong 1 tin nhắn (cho phép tag 5-10 bạn rủ chơi game)
+const WINDOW_MENTION_THRESHOLD = 15;       // Tối đa 15 lượt tag cộng dồn trong 10 giây
+const CLEANUP_WINDOW_MS = 10 * 60 * 1000;  // Quét xóa tin nhắn 10 phút gần nhất
 
 const STATS_FILE_PATH = path.join(__dirname, "..", "antiraid.json");
 
@@ -140,9 +143,13 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
         if (!message.content && message.attachments.size === 0) return false;
 
         const containsDiscordInvite = /(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/[a-zA-Z0-9]+/i.test(textSig);
-        const isMassMention = message.mentions.everyone || (message.mentions.users.size + message.mentions.roles.size) >= 5;
+        const mentionCount = message.mentions.users.size + message.mentions.roles.size;
+        const canMentionEveryone = message.member?.permissions.has(PermissionFlagsBits.MentionEveryone) ?? false;
+        const hasEveryoneMention = message.mentions.everyone && !canMentionEveryone;
 
-        if (messageSignature.length <= 5 && !containsDiscordInvite && !isMassMention) return false;
+        if (messageSignature.length <= 5 && !containsDiscordInvite && mentionCount === 0 && !hasEveryoneMention) {
+            return false;
+        }
 
         if (!crossChannelSpamTracker.has(userId)) crossChannelSpamTracker.set(userId, []);
 
@@ -153,16 +160,25 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
             messageId: message.id,
             channelId: message.channel.id,
             signature: messageSignature,
+            mentionCount,
+            hasEveryoneMention,
             timestamp: now
         });
         crossChannelSpamTracker.set(userId, userRecords);
 
         identicalSpams = userRecords.filter(rec => rec.signature === messageSignature);
         const uniqueChannels = new Set(identicalSpams.map(rec => rec.channelId));
+        const totalMentionsInWindow = userRecords.reduce((sum, rec) => sum + rec.mentionCount, 0);
+        const everyoneSpamCount = userRecords.filter(rec => rec.hasEveryoneMention).length;
 
         const isCrossChannelSpam = uniqueChannels.size >= SPAM_CROSS_CHANNEL_THRESHOLD;
         const isSameChannelSpam = identicalSpams.length >= SPAM_SAME_CHANNEL_THRESHOLD;
         const isIllegalInvite = containsDiscordInvite && userRecords.length >= 2;
+        const isMassMention =
+            mentionCount >= SINGLE_MSG_MENTION_THRESHOLD ||
+            totalMentionsInWindow >= WINDOW_MENTION_THRESHOLD ||
+            everyoneSpamCount >= 2 ||
+            (hasEveryoneMention && containsDiscordInvite);
 
         if (isCrossChannelSpam || isSameChannelSpam || isIllegalInvite || isMassMention) {
             shouldTriggerBan = true;
@@ -171,7 +187,7 @@ async function handleAntiRaid(message, client, HOANG_DE_ROLE_ID) {
             if (isCrossChannelSpam) adminReason = `Spam nhiều ${uniqueChannels.size} kênh`;
             else if (isSameChannelSpam) adminReason = `Spam ${identicalSpams.length} lần liên tục`;
             else if (isIllegalInvite) adminReason = "Gửi Link Server khác";
-            else if (isMassMention) adminReason = "Spam Tag (@everyone/roles)";
+            else if (isMassMention) adminReason = `Spam Tag hàng loạt (${mentionCount} tag/tin, ${totalMentionsInWindow} tag/10s)`;
         }
     }
 
